@@ -15,14 +15,14 @@ def green_ref_00_integrand(kr, wl, z0, eps_interp):
         [0, 0, 2*kr**2*rpE]
     ], dtype=np.complex128)
     IntegrandH = np.array([
-        [k**2*rpH - kz**2*rsH, 0, 0],
-        [0, k**2*rpH-kz**2*rsH, 0],
-        [0, 0, 2*kr**2*rsH]
+        [k**2*rpE - kz**2*rsE, 0, 0],
+        [0, k**2*rpE-kz**2*rsE, 0],
+        [0, 0, 2*kr**2*rsE]
     ], dtype=np.complex128)
     return kr*IntegrandE/kz*np.exp(2*1j*kz*z0*2*np.pi/wl), kr*IntegrandH/kz*np.exp(2*1j*kz*z0*2*np.pi/wl)
 
 
-def green_ref_00(wl, z0, eps_interp, stop=10, rel_tol=1e-8):
+def green_ref_00(wl, z0, eps_interp, stop=100000, rel_tol=1e-8):
     k = 2*np.pi/wl/1e-9
     IntE = np.zeros((3, 3), dtype=np.complex128)
     IntH = np.zeros((3, 3), dtype=np.complex128)
@@ -66,6 +66,6 @@ def rot_green_ref_00(wl, z0, eps_interp, stop=10, rel_tol=1e-8):
     IntE = np.zeros((3, 3), dtype=np.complex128)
     IntE[0, 1] = IntE01
     IntE[1, 0] = IntE10
-    rot_G_ref_E = IntE/(8*np.pi*k**2)
-    rot_G_ref_H = -1 * IntE/(8*np.pi*k**2)
+    rot_G_ref_E = IntE/(8*np.pi)*k**2
+    rot_G_ref_H = -1 * IntE/(8*np.pi)*k**2
     return rot_G_ref_E, rot_G_ref_H

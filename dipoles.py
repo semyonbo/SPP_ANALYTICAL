@@ -42,6 +42,7 @@ def alpha_v2(wl, R, eps_Si):
     alpha_e = 6*1j*np.pi * a1 / (2*np.pi/wl/1e-9)**3
     alpha_m = 6*1j*np.pi * b1 / (2*np.pi/wl/1e-9)**3
 
+    #print(alpha_e, alpha_m)
     return alpha_e, alpha_m
 
 
@@ -124,6 +125,9 @@ def calc_dipoles_v2(wl, eps_Au, point, R, eps_Si, alpla, amplitude, phase, a, st
     omega = 2*np.pi*c_const/wl/1e-9
     x0, y0, z0 = point
     alpha_e, alpha_m = alpha_v2(wl, R, eps_Si)
+    
+    #alpha_e, alpha_m = get_alpha(R,eps_Si, wl)
+    
     G_ref_E, G_ref_H = green_func.green_ref_00(wl, z0, eps_Au, stop)
     rot_G_ref_E, rot_G_ref_H = green_func.rot_green_ref_00(
         wl, z0, eps_Au, stop)
