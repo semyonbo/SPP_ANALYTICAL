@@ -92,7 +92,7 @@ def initial_field(wl, alpha, amplitude, eps_interp, point, phase=0, a=0):
     return E0, H0
 
 
-# ТУТ ОШИБКА ГДЕ-ТО
+# ТУТ ОШИБКА ГДЕ-ТО - ИЛИ НЕТ
 def calc_dipoles(wl, eps_interp, stop, R, eps_interp_particle, point, alpla, amplitude=1, phase=0, a=0):
     x0, y0, z0 = point
     mu = 1

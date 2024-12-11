@@ -1,53 +1,29 @@
-import frenel
 import numpy as np
-from green_func import green_ref_00, green_ref_00_integrand, rot_green_ref_00
+import force
 import matplotlib.pyplot as plt
-from cmath import sqrt
-from scipy.integrate import quad
+from tqdm import tqdm
+import frenel
 import dipoles
+import green_func
 
-wls = np.linspace(500, 1000, 20)
-# wli=800
+
+eps_Au = frenel.get_interpolate('Au')
 eps_Si = frenel.get_interpolate('Si')
 
-z0 = (14+20)
+wl = 800  # [nm]
+STOP = 45
+R = 146
+dist = 20
+point = [0,0,dist+R]
+angle = 25*np.pi/180
+phase = 0
+a = 0.5
 
-dipoles.get_alpha(14, eps_Si, 800)
-# eps_Au = frenel.get_interpolate('Au')
-# res0 = []
-# res1 = []
-# res2 = []
-# rot1 = []
-# rot2 = []
-# rot3 = []
-
-
-# for wli in wls:
-# #     # print(quad( lambda kr: green_ref_00_integrand(kr, wli, z0, eps_Au)[0][0, 0], 0, 1, complex_func=True))
-    
-#     res = green_ref_00(wli, z0, eps_Au)[0]
-
-#     rot = rot_green_ref_00(wli, z0, eps_Au)[0]
-
-#     res0.append(res[0, 0])
-#     res1.append(res[1, 1])
-#     res2.append(res[2, 2])
-    
-#     rot1.append(rot[0, 1])
-#     rot2.append(rot[1, 0])
-
-#     res0.append(green_ref_00(wli, z0, eps_Au)[0][2,2])
+F =  force.F(wl, eps_Au, point, R, eps_Si, angle,amplitude=1,phase=phase,a=a, stop=STOP)
 
 
-# plt.plot(wls, np.real(res1)/np.max(np.abs(res0)), label='Gref10')
-# plt.plot(wls, np.real(res1)/np.max(np.abs(res1)), label='Gref11')
-# plt.plot(wls, np.real(res2)/np.max(np.abs(res2)), label='Gref22')
-# plt.legend()
-# plt.show()
+print(F)
 
 
-# plt.plot(wls, np.real(rot1)/np.max(np.abs(rot1)), label='Grot10')
-# plt.plot(wls, np.real(rot2)/np.max(np.abs(rot1)), label='Grot11')
 
-# plt.legend()
-# plt.show()
+# print(green_func.dy_green_E_H_yz(wl,point[2], eps_Au, STOP))
