@@ -60,7 +60,7 @@ def get_alpha(Rnm, eps_interp_particle, wl):
     return alpha_e, alpha_m
 
 
-def initial_field(wl, alpha, amplitude, eps_interp, point, phase=0, a=0):
+def initial_field(wl, alpha, amplitude, eps_interp, point, phase, a):
     rp, rs = frenel.reflection_coeff_v2(wl, eps_interp, alpha)
     xnm, ynm, znm = point
     x = xnm*1e-9

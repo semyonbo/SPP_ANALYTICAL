@@ -22,7 +22,7 @@ def green_ref_00_integrand(kr, wl, z0, eps_interp):
     return kr*IntegrandE/kz*np.exp(2*1j*kz*z0*2*np.pi/wl), kr*IntegrandH/kz*np.exp(2*1j*kz*z0*2*np.pi/wl)
 
 
-def green_ref_00(wl, z0, eps_interp, stop=100000, rel_tol=1e-8):
+def green_ref_00(wl, z0, eps_interp, stop, rel_tol=1e-8):
     k = 2*np.pi/wl/1e-9
     IntE = np.zeros((3, 3), dtype=np.complex128)
     IntH = np.zeros((3, 3), dtype=np.complex128)
@@ -51,7 +51,7 @@ def rot_green_ref_00_integrand(kr, wl, z0, eps_interp):
     return Integrand*kr*(rsE-rpE)*np.exp(2*1j*kz*z0*2*np.pi/wl)
 
 
-def rot_green_ref_00(wl, z0, eps_interp, stop=10, rel_tol=1e-8):
+def rot_green_ref_00(wl, z0, eps_interp, stop, rel_tol=1e-8):
     k = 2*np.pi/wl/1e-9
 
     IntE01 = quad(lambda kr: rot_green_ref_00_integrand(
@@ -173,3 +173,56 @@ def dx_rot_green_E_H(wl, z0, eps_interp, stop, rel_tol=1e-8):
     dx_drotG_E[1,2] = 1j*Int_dx_rotH_zy/(8*np.pi)*k**3
     
     return dx_drotG_E, dx_drotG_H
+
+
+def dz_green_integrand(kr, wl, eps_interp, z0):
+    kz = sqrt(1 - kr**2) 
+    rpE, _, rsE, _ = frenel.reflection_coeff(wl, eps_interp, kr)
+    return (rsE - rpE*kz**2) * kr * np.exp(2*1j*kz*z0*2*np.pi/wl), 2*rpE*kr**3*np.exp(2*1j*kz*z0*2*np.pi/wl), (rpE - rsE*kz**2) * kr * np.exp(2*1j*kz*z0*2*np.pi/wl), 2*rsE*kr**3*np.exp(2*1j*kz*z0*2*np.pi/wl)
+
+def dz_green_E_H(wl, z0, eps_interp, stop, rel_tol=1e-8):
+    k = 2*np.pi/wl/1e-9
+    
+    Int_dz_green_E_xx = quad(lambda kr: dz_green_integrand(kr, wl, eps_interp, z0)[0], 0, stop, epsrel=rel_tol, complex_func=True)[0]
+    Int_dz_green_E_zz = quad(lambda kr: dz_green_integrand(kr, wl, eps_interp, z0)[1], 0, stop, epsrel=rel_tol, complex_func=True)[0]
+    
+    Int_dz_green_H_xx = quad(lambda kr: dz_green_integrand(kr, wl, eps_interp, z0)[2], 0, stop, epsrel=rel_tol, complex_func=True)[0]
+    Int_dz_green_H_zz = quad(lambda kr: dz_green_integrand(kr, wl, eps_interp, z0)[3], 0, stop, epsrel=rel_tol, complex_func=True)[0]
+    
+    
+    dz_dG_H = np.zeros((3, 3), dtype=np.complex128)
+    dz_dG_E = np.zeros((3, 3), dtype=np.complex128)
+    
+    dz_dG_E[0,0] = -1*Int_dz_green_E_xx *k**2 /(8*np.pi)
+    dz_dG_E[1,1] = -1*Int_dz_green_E_xx *k**2 /(8*np.pi)
+    dz_dG_E[2,2] = -1*Int_dz_green_E_zz *k**2 /(8*np.pi)
+    
+    dz_dG_H[0,0] = -1*Int_dz_green_H_xx *k**2 /(8*np.pi)
+    dz_dG_H[1,1] = -1*Int_dz_green_H_xx *k**2 /(8*np.pi)
+    dz_dG_H[2,2] = -1*Int_dz_green_H_zz *k**2 /(8*np.pi)
+    
+    return dz_dG_E, dz_dG_H
+
+def dz_rot_green_integrand(kr, wl, eps_interp, z0):
+    kz = sqrt(1 - kr**2) 
+    rpE, _, rsE, _ = frenel.reflection_coeff(wl, eps_interp, kr)
+    return kz*kr*(rsE-rpE) * np.exp(2*1j*kz*z0*2*np.pi/wl)
+    
+def dz_rot_green_E_H(wl, z0, eps_interp, stop, rel_tol=1e-8):
+    k = 2*np.pi/wl/1e-9
+    
+    Int_dz__rot_green_E = quad(lambda kr: dz_rot_green_integrand(kr, wl, eps_interp, z0), 0, stop, epsrel=rel_tol, complex_func=True)[0]
+    
+    dz_drotG_H = np.zeros((3, 3), dtype=np.complex128)
+    dz_drotG_E = np.zeros((3, 3), dtype=np.complex128)
+    
+    dz_drotG_E[0,1] = Int_dz__rot_green_E*1j/(8*np.pi)*k**3
+    dz_drotG_E[1,0] = -1*Int_dz__rot_green_E*1j/(8*np.pi)*k**3
+    dz_drotG_H[0,1] = -1*Int_dz__rot_green_E*1j/(8*np.pi)*k**3
+    dz_drotG_H[1,0] = Int_dz__rot_green_E*1j/(8*np.pi)*k**3
+    
+    return dz_drotG_E, dz_drotG_H
+    
+    
+    
+    
