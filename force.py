@@ -90,10 +90,10 @@ def F(wl, eps_Au, point,R, eps_si, alpha, amplitude, phase,a,stop):
     
     Fx_e1 = 0.5*mu*k**2/eps0_const * np.real(np.conj(p) @ (dx_G_E @ p))
     Fx_e2 = 0.5*omega*mu*mu0_const * np.real(1j*np.conj(p) @ (dx_rot_G_H @ m))
-    Fx_e0 = 0.5*np.imag(np.conj(p)@ E0)*kx
+    Fx_e0 = -0.5*np.imag(np.conj(p)@ E0)*kx
     Fx_m1 = 0.5*mu**2*mu0_const*eps*k**2 * np.real(np.conj(m)@ (dx_G_H @ m))
     Fx_m2 = -0.5*mu*mu0_const*omega*np.real(1j*np.conj(m) @ (dx_rot_G_E @ p))
-    Fx_m0 = 0.5*mu*mu0_const*np.imag(np.conj(m)@ H0)*kx
+    Fx_m0 = -0.5*mu*mu0_const*np.imag(np.conj(m)@ H0)*kx
     
     F_x = Fx_e1 + Fx_e2 + Fx_e0 + Fx_m0 + Fx_m1 + Fx_m2 + F_crest[0]
     
@@ -110,5 +110,5 @@ def F(wl, eps_Au, point,R, eps_si, alpha, amplitude, phase,a,stop):
     
     
     
-    return F_x, F_y, F_z, [Fx_e0, Fx_e1, Fx_e2, Fx_m0 ,Fx_m1 , Fx_m2 , F_crest[0]]
+    return Fx_e0, Fx_e1, Fx_e2, Fx_m0, Fx_m1, Fx_m2, F_crest[0]
 
