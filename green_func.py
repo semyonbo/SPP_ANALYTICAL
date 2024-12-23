@@ -166,11 +166,11 @@ def dx_rot_green_E_H(wl, z0, eps_interp, stop, rel_tol=1e-8):
         0]+quad(lambda kr: dx_rot_green_H_integrand(kr, wl, eps_interp, z0)[1], 1, stop, epsrel=rel_tol, complex_func=True)[0]
     dx_drotG_H = np.zeros((3, 3), dtype=np.complex128)
     dx_drotG_E = np.zeros((3, 3), dtype=np.complex128)
-    dx_drotG_H[2,1] = -1j*Int_dx_rotH_zy/(8*np.pi)*k**3
-    dx_drotG_H[1,2] = -1j*Int_dx_rotH_yz/(8*np.pi)*k**3
+    dx_drotG_H[1,2] = -1j*Int_dx_rotH_zy/(8*np.pi)*k**3
+    dx_drotG_H[2,1] = -1j*Int_dx_rotH_yz/(8*np.pi)*k**3
     
-    dx_drotG_E[2,1] = 1j*Int_dx_rotH_yz/(8*np.pi)*k**3
-    dx_drotG_E[1,2] = 1j*Int_dx_rotH_zy/(8*np.pi)*k**3
+    dx_drotG_E[1,2] = 1j*Int_dx_rotH_yz/(8*np.pi)*k**3
+    dx_drotG_E[2,1] = 1j*Int_dx_rotH_zy/(8*np.pi)*k**3
     
     return dx_drotG_E, dx_drotG_H
 

@@ -9,7 +9,7 @@ eps0_const = 1/(4*np.pi*c_const**2)*1e7
 mu0_const = 4*np.pi * 1e-7
 
 
-def F(wl, eps_Au, point,R, eps_si, alpha, amplitude, phase,a,stop):
+def F(wl, eps_Au, point,R, eps_si, alpha, amplitude, phase,a,stop, full_output=False):
     mu=1
     eps=1
     k = 2*np.pi/wl/1e-9
@@ -30,25 +30,6 @@ def F(wl, eps_Au, point,R, eps_si, alpha, amplitude, phase,a,stop):
     B = np.sqrt(1-a)
     Phase = np.exp(1j*phase)
     kz = k * np.cos(alpha)
-    
-    # dx_dEx = B * Phase *amplitude * np.cos(alpha) * ( np.exp(-1j*kz*zm0) - rp * np.exp(1j*kz*zm0))*1j*kx
-    # dx_dEy = A * amplitude * (np.exp(-1j*kz*zm0) + rs * np.exp(1j*kz*zm0))*1j*kx
-    # dx_dEz = B * Phase * amplitude * np.sin(alpha) * ( np.exp(-1j*kz*zm0) + rp *np.exp(1j*kz*zm0))*1j*kx
-    
-    # dx_dE = np.array([[dx_dEx],
-    #                  [dx_dEy],
-    #                  [dx_dEz]])
-    
-    # dx_dHx = k* A *amplitude*np.cos(alpha) / omega/mu0_const *(np.exp(-1j*kz*zm0) - rs * np.exp(1j*kz*zm0))*1j*kx
-    # dx_dHy = -k * B * Phase * amplitude  / omega / mu0_const *(np.exp(-1j*kz*zm0) + rp * np.exp(1j*kz*zm0))*1j*kx
-    # dx_dHz = A * k*amplitude*np.sin(alpha) / omega/mu0_const *(np.exp(-1j*kz*zm0) + rs * np.exp(1j*kz*zm0))*1j*kx
-    
-    # dx_dH = np.array([[dx_dHx],
-    #                  [dx_dHy],
-    #                  [dx_dHz]])
-    
-    # dx_dE=dx_dE[:,0]
-    # dx_dH=dx_dH[:,0]
     
     dz_dEx = B * Phase *amplitude * np.cos(alpha) * (-1j*kz * np.exp(-1j*kz*zm0) - rp * 1j* kz*np.exp(1j*kz*zm0))
     dz_dEy = A * amplitude * (-1j*kz*np.exp(-1j*kz*zm0) + rs * np.exp(1j*kz*zm0)*1j*kz)
@@ -108,7 +89,10 @@ def F(wl, eps_Au, point,R, eps_si, alpha, amplitude, phase,a,stop):
     
     F_z = Fz_e1 + Fz_e2 + Fz_e0 + Fz_m0 + Fz_m1 + Fz_m2 + F_crest[2]
     
-    
-    
-    return Fx_e0, Fx_e1, Fx_e2, Fx_m0, Fx_m1, Fx_m2, F_crest[0]
-
+    if full_output==False:
+        return F_x, F_y, F_z
+    else:
+        Fx = [F_x, Fx_e0, Fx_e1, Fx_e2, Fx_m0, Fx_m1, Fx_m2, F_crest[0]]
+        Fy = [F_y, 0, Fy_e1, Fy_e2, 0, Fy_m1, Fy_m2, F_crest[1]]
+        Fz = [F_z, Fz_e0, Fz_e1, Fz_e2, Fz_m0, Fz_m1, Fz_m2, F_crest[2]]
+        return np.array([Fx, Fy, Fz])
