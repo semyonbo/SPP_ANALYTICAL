@@ -10,7 +10,7 @@ eps_Si = frenel.get_interpolate('Si')
 eps_Au = frenel.get_interpolate('Au')
 
 # Define constants
-STOP = 45
+STOP = 1
 dist = 20
 angle = 25 * np.pi / 180
 phase = 0
@@ -48,6 +48,6 @@ if __name__ == "__main__":
             F_z[i2, i1, :] = f[2]
 
     # Save the results to .npy files
-    np.save('F_x_phase.npy', F_x)
-    np.save('F_y_phase.npy', F_y)
-    np.save('F_z_phase.npy', F_z)
+    np.save('F_x_no_spp.npy', F_x)
+    np.save('F_y_no_spp.npy', F_y)
+    np.save('F_z_no_spp.npy', F_z)

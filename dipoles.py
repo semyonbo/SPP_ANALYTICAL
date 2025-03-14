@@ -42,7 +42,6 @@ def alpha_v2(wl, R, eps_Si):
     alpha_e = 6*1j*np.pi * a1 / (2*np.pi/wl/1e-9)**3
     alpha_m = 6*1j*np.pi * b1 / (2*np.pi/wl/1e-9)**3
 
-    #print(alpha_e, alpha_m)
     return alpha_e, alpha_m
 
 
@@ -118,7 +117,7 @@ def calc_dipoles(wl, eps_interp, stop, R, eps_interp_particle, point, alpla, amp
     return p, m
 
 
-def calc_dipoles_v2(wl, eps_Au, point, R, eps_Si, alpla, amplitude, phase, a, stop=10):
+def calc_dipoles_v2(wl, eps_Au, point, R, eps_Si, alpla, amplitude, phase, a, stop):
     mu = 1
     eps = 1
     k = 2*np.pi/wl/1e-9

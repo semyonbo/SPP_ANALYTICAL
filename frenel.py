@@ -1,8 +1,5 @@
 import numpy as np
 from scipy.interpolate import interp1d
-import pickle
-import os
-import functools
 
 def reflection_coeff(wl, eps_interp, kr):
     """_summary_
@@ -47,8 +44,13 @@ def reflection_coeff_v2(wl, eps_interp, angle):
         eps2 = 1
     else:
         eps2 = eps_interp(wl)
-    k1 = 2*np.pi/wl/1e-9 * np.sqrt(eps1 +0j)
-    k2 = k1 * np.sqrt(eps2 + 0j)
+    # k1 = 2*np.pi/wl/1e-9 * np.sqrt(eps1 +0j)
+    # k2 = k1 * np.sqrt(eps2 + 0j)
+    # kx = k1*np.sin(angle)
+    # kz1 = np.sqrt(k1**2 - kx**2+0j)
+    # kz2 = np.sqrt(k2**2 - kx**2+0j)
+    k1 = np.sqrt(eps1 +0j)
+    k2 = np.sqrt(eps2 + 0j)
     kx = k1*np.sin(angle)
     kz1 = np.sqrt(k1**2 - kx**2+0j)
     kz2 = np.sqrt(k2**2 - kx**2+0j)
