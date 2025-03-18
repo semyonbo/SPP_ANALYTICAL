@@ -1,8 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-import frenel
-import force
+import MieSppForce.frenel as frenel
+import MieSppForce.force as force
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # Retrieve interpolated values

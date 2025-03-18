@@ -1,8 +1,7 @@
 import numpy as np
-import dipoles
+from MieSppForce import frenel, dipoles
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-import frenel
 from scipy.integrate import quad
 from joblib import Parallel, delayed
 
@@ -18,16 +17,16 @@ def get_intensity(wl, P, M, eps_Au):
 
 eps_Si = frenel.get_interpolate('Si')
 eps_Au = frenel.get_interpolate('Au')
-STOP = 50
-R = 110
+STOP = 45
+R = 100
 dist = 20
 point = [0, 0, dist + R]
 ANGLE = 25 * np.pi / 180
-wl = 770
+wl = 850
 
-phase_values = np.linspace(0, 2 * np.pi, 20)
-a_values = np.linspace(0, 1, 20)
-angles = np.linspace(0, 2 * np.pi, 20)
+phase_values = np.linspace(0, 2 * np.pi, 100)
+a_values = np.linspace(0, np.pi/2, 100)
+angles = np.linspace(0, 2 * np.pi, 100)
 
 def compute_for_angle(angle_index):
     max_D = 0
@@ -37,7 +36,7 @@ def compute_for_angle(angle_index):
     for pha in phase_values:
         for a_i in a_values:
             p, m = dipoles.calc_dipoles_v2(wl, eps_Au, point, R, eps_Si, ANGLE,
-                                           amplitude=1, phase=pha, a=a_i, stop=STOP)
+                                           amplitude=1, phase=pha, a_angle=a_i, stop=STOP)
             p, m = p[:, 0], m[:, 0]
             intensity = get_intensity(wl, p, m, eps_Au)
             Imax = quad(intensity, 0, 2 * np.pi)[0]
@@ -51,7 +50,7 @@ def compute_for_angle(angle_index):
     return angle_index, max_D, best_params, best_p, best_m
 
 # Параллельный запуск
-results = Parallel(n_jobs=-1, backend="loky")(delayed(compute_for_angle)(i) for i in tqdm(range(len(angles))))
+results = Parallel(n_jobs=16, backend="loky")(delayed(compute_for_angle)(i) for i in tqdm(range(len(angles))))
 
 # Сохранение результатов
 Ds = np.zeros(len(angles))
