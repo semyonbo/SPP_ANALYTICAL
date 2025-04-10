@@ -3,7 +3,7 @@ import scipy
 from MieSppForce import frenel
 from scipy.integrate import quad
 from cmath import sqrt
-
+from functools import lru_cache
 
 def green_ref_00_integrand(kr, wl, z0, eps_interp):
     k = 1
@@ -21,7 +21,7 @@ def green_ref_00_integrand(kr, wl, z0, eps_interp):
     ], dtype=np.complex128)
     return kr*IntegrandE/kz*np.exp(2*1j*kz*z0*2*np.pi/wl), kr*IntegrandH/kz*np.exp(2*1j*kz*z0*2*np.pi/wl)
 
-
+@lru_cache(maxsize=None)
 def green_ref_00(wl, z0, eps_interp, stop, rel_tol=1e-8):
     k = 2*np.pi/wl/1e-9
     IntE = np.zeros((3, 3), dtype=np.complex128)
@@ -57,7 +57,7 @@ def rot_green_ref_00_integrand(kr, wl, z0, eps_interp):
     ])
     return Integrand*kr*(rsE-rpE)*np.exp(2*1j*kz*z0*2*np.pi/wl)
 
-
+@lru_cache(maxsize=None)
 def rot_green_ref_00(wl, z0, eps_interp, stop, rel_tol=1e-8):
     k = 2*np.pi/wl/1e-9
 
@@ -89,7 +89,7 @@ def dy_green_integrand(kr, wl, eps_interp, z0):
     rpE, _, rsE, _ = frenel.reflection_coeff(wl, eps_interp, kr)
     return rpE * kr**3 * np.exp(2*1j*kz*z0*2*np.pi/wl), rsE*kr**3*np.exp(2*1j*kz*z0*2*np.pi/wl)
 
-
+@lru_cache(maxsize=None)
 def dy_green_E_H(wl, z0, eps_interp, stop, rel_tol=1e-8):
     k = 2*np.pi/wl/1e-9
     Int_dy_dG_E_yz = quad(lambda kr: dy_green_integrand(kr, wl, eps_interp, z0)[
@@ -117,7 +117,7 @@ def dy_rot_green_H_integrand(kr, wl, eps_interp, z0):
     # ])
     return kr**3*rsE*np.exp(2*1j*kz*z0*2*np.pi/wl)/kz, -1*kr**3*rpE*np.exp(2*1j*kz*z0*2*np.pi/wl)/kz
 
-
+@lru_cache(maxsize=None)
 def dy_rot_green_E_H(wl, z0, eps_interp, stop, rel_tol=1e-8):
     k = 2*np.pi/wl/1e-9
     if stop == 1:
@@ -149,6 +149,7 @@ def dx_green_integrand(kr, wl, eps_interp, z0):
     rpE, _, rsE, _ = frenel.reflection_coeff(wl, eps_interp, kr)
     return rpE*kr**3*np.exp(2*1j*kz*z0*2*np.pi/wl), rsE*kr**3*np.exp(2*1j*kz*z0*2*np.pi/wl)
 
+@lru_cache(maxsize=None)
 def dx_green_E_H(wl, z0, eps_interp, stop, rel_tol=1e-8):
     k = 2*np.pi/wl/1e-9
     Int_dx_dG_E_xz = quad(lambda kr: dx_green_integrand(kr, wl, eps_interp, z0)[
@@ -177,6 +178,7 @@ def dx_rot_green_H_integrand(kr, wl, eps_interp, z0):
     # ])
     return -1*kr**3*rsE*np.exp(2*1j*kz*z0*2*np.pi/wl)/kz, kr**3*rpE*np.exp(2*1j*kz*z0*2*np.pi/wl)/kz
 
+@lru_cache(maxsize=None)
 def dx_rot_green_E_H(wl, z0, eps_interp, stop, rel_tol=1e-8):
     k = 2*np.pi/wl/1e-9
     if stop==1:
@@ -203,6 +205,7 @@ def dz_green_integrand(kr, wl, eps_interp, z0):
     rpE, _, rsE, _ = frenel.reflection_coeff(wl, eps_interp, kr)
     return (rsE - rpE*kz**2) * kr * np.exp(2*1j*kz*z0*2*np.pi/wl), 2*rpE*kr**3*np.exp(2*1j*kz*z0*2*np.pi/wl), (rpE - rsE*kz**2) * kr * np.exp(2*1j*kz*z0*2*np.pi/wl), 2*rsE*kr**3*np.exp(2*1j*kz*z0*2*np.pi/wl)
 
+@lru_cache(maxsize=None)
 def dz_green_E_H(wl, z0, eps_interp, stop, rel_tol=1e-8):
     k = 2*np.pi/wl/1e-9
     
@@ -230,7 +233,8 @@ def dz_rot_green_integrand(kr, wl, eps_interp, z0):
     kz = sqrt(1 - kr**2) 
     rpE, _, rsE, _ = frenel.reflection_coeff(wl, eps_interp, kr)
     return kz*kr*(rsE-rpE) * np.exp(2*1j*kz*z0*2*np.pi/wl)
-    
+
+@lru_cache(maxsize=None)    
 def dz_rot_green_E_H(wl, z0, eps_interp, stop, rel_tol=1e-8):
     k = 2*np.pi/wl/1e-9
     
