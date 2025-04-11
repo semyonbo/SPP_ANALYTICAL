@@ -26,7 +26,7 @@ def spherical_hn(n, x, derivative=False):
 
 def alpha_v2(wl, R, eps_Si):
     eps3 = eps_Si(wl)
-    n3 = sqrt(eps3)
+    n3 = np.sqrt(eps3+0j)
     x0 = R*2*np.pi/wl
     x1 = R*2*np.pi/wl*n3
     j1_x0 = spherical_jn(1, x0)
