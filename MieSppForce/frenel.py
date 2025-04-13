@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.interpolate import interp1d
+import os
 
 def reflection_coeff(wl, eps_interp, kr):
     """_summary_
@@ -63,10 +64,15 @@ def get_interpolate(mat):
     Returns:
         numpy.complex128: epsilon
     """
+    base_dir = os.path.dirname(__file__)
+    
+    
     if mat == 'Au':
-        data = np.loadtxt('MieSppForce/nkAu.csv', delimiter=',', skiprows=1)
+        file_path = os.path.join(base_dir, 'nkAu.csv')
+        data = np.loadtxt(file_path, delimiter=',', skiprows=1)
     elif mat == 'Si':
-        data = np.loadtxt('MieSppForce/nkSi.csv', delimiter=',', skiprows=1)
+        file_path = os.path.join(base_dir, 'nkSi.csv')
+        data = np.loadtxt(file_path, delimiter=',', skiprows=1)
 
     n_interp = interp1d(data[:,0], data[:,1])
     k_interp = interp1d(data[:,0], data[:,2])
