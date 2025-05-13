@@ -14,10 +14,10 @@ def reflection_coeff(wl, eps_interp, kr):
         _type_: _description_
     """
     eps1=1
-    if type(eps_interp) == int:
-        eps2 = 1
-    else:
+    if type(eps_interp) != int:
         eps2 = eps_interp(wl)
+    else:
+        eps2 = eps_interp
     k1 = np.sqrt(eps1+0j)
     k2 = np.sqrt(eps2+0j)
     kz1 = np.sqrt(k1**2 - kr**2+0j)
@@ -41,10 +41,10 @@ def reflection_coeff_v2(wl, eps_interp, angle):
         _type_: _description_
     """
     eps1=1
-    if type(eps_interp) == int:
-        eps2 = 1
-    else:
+    if type(eps_interp) != int:
         eps2 = eps_interp(wl)
+    else:
+        eps2 = eps_interp
     k1 = np.sqrt(eps1 +0j)
     k2 = np.sqrt(eps2 + 0j)
     kx = k1*np.sin(angle)
@@ -72,6 +72,9 @@ def get_interpolate(mat):
         data = np.loadtxt(file_path, delimiter=',', skiprows=1)
     elif mat == 'Si':
         file_path = os.path.join(base_dir, 'nkSi.csv')
+        data = np.loadtxt(file_path, delimiter=',', skiprows=1)
+    elif mat== 'Ag':
+        file_path = os.path.join(base_dir, 'nkAg.csv')
         data = np.loadtxt(file_path, delimiter=',', skiprows=1)
 
     n_interp = interp1d(data[:,0], data[:,1])

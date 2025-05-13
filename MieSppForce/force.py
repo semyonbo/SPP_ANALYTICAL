@@ -24,15 +24,21 @@ def cached_green_functions(wl, z0, eps_Au, stop):
     return (dx_G_E, dx_G_H, dx_rot_G_E, dx_rot_G_H,
             dy_G_E, dy_G_H, dy_rot_G_E, dy_rot_G_H,
             dz_G_E, dz_G_H, dz_rot_G_E, dz_rot_G_H)
+    
 
 
-def F(wl, eps_Au, point,R, eps_si, alpha, amplitude, phase, a_angle ,stop, full_output=False):
+def F(wl, eps_Au, point,R, eps_si, alpha, amplitude, phase, a_angle ,stop, full_output=False, stop_dipoles=None):
     mu=1
     eps=1
     k = 2*np.pi/wl/1e-9
     omega = 2*np.pi*c_const/wl/1e-9
     x0,y0,z0=point
-    dip = dipoles.calc_dipoles_v2(wl,eps_Au, point,R,eps_si, alpha, amplitude, phase, a_angle, stop)
+    
+    if stop_dipoles != None:
+        dip = dipoles.calc_dipoles_v2(wl,eps_Au, point,R,eps_si, alpha, amplitude, phase, a_angle, stop_dipoles)
+    else:
+        dip = dipoles.calc_dipoles_v2(wl,eps_Au, point,R,eps_si, alpha, amplitude, phase, a_angle, stop)
+        
     p = dip[0][:,0]
     m = dip[1][:,0]
     E0, H0 = dipoles.initial_field(wl, alpha, amplitude, eps_Au, point, phase, a_angle)
@@ -64,8 +70,7 @@ def F(wl, eps_Au, point,R, eps_si, alpha, amplitude, phase, a_angle ,stop, full_
     
     dz_dE=dz_dE[:,0]
     dz_dH=dz_dH[:,0]
-    
-    
+
     (dx_G_E, dx_G_H, dx_rot_G_E, dx_rot_G_H,
      dy_G_E, dy_G_H, dy_rot_G_E, dy_rot_G_H,
      dz_G_E, dz_G_H, dz_rot_G_E, dz_rot_G_H) = cached_green_functions(wl, z0, eps_Au, stop)
