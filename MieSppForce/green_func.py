@@ -5,6 +5,12 @@ from scipy.integrate import quad
 from cmath import sqrt
 from functools import lru_cache
 
+import warnings
+from scipy.integrate import IntegrationWarning
+
+warnings.filterwarnings("ignore", category=IntegrationWarning)
+
+
 def green_ref_00_integrand(kr, wl, z0, eps_interp):
     k = 1
     kz = sqrt(1 - kr**2)

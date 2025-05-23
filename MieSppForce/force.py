@@ -11,7 +11,7 @@ eps0_const = 1/(4*np.pi*c_const**2)*1e7
 mu0_const = 4*np.pi * 1e-7
 
 # #add cache
-# @lru_cache(maxsize=None)
+@lru_cache(maxsize=None)
 def cached_green_functions(wl, z0, eps_Au, stop):
     dx_G_E, dx_G_H = green_func.dx_green_E_H(wl, z0, eps_Au, stop)
     dx_rot_G_E, dx_rot_G_H = green_func.dx_rot_green_E_H(wl, z0, eps_Au, stop)

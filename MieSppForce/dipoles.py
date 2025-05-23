@@ -9,7 +9,7 @@ c_const = 299792458
 eps0_const = 1/(4*np.pi*c_const**2)*1e7
 mu0_const = 4*np.pi * 1e-7
 
-# @lru_cache(maxsize=None)
+@lru_cache(maxsize=None)
 def cached_green_functions(wl, z0, eps_Au, stop):
     G_ref_E, G_ref_H = green_func.green_ref_00(wl, z0, eps_Au, stop)
     rot_G_ref_E, rot_G_ref_H = green_func.rot_green_ref_00(
@@ -57,18 +57,18 @@ def alpha_v2(wl, R, eps_Si):
     return alpha_e, alpha_m
 
 
-# def get_alpha(Rnm, eps_interp_particle, wl):
-#     R = Rnm*1e-9
-#     k = 2*np.pi/wl/1e-9
-#     eps_p = eps_interp_particle(wl)
+def get_alpha(Rnm, eps_interp_particle, wl):
+    R = Rnm*1e-9
+    k = 2*np.pi/wl/1e-9
+    eps_p = eps_interp_particle(wl)
 
-#     alpha_e_0 = 4*np.pi*eps0_const*R**3 * (eps_p - 1)/(eps_p + 2)
-#     alpha_e = alpha_e_0/(1 - 1j * k**3 * alpha_e_0 / (6*np.pi*eps0_const))
+    alpha_e_0 = 4*np.pi*eps0_const*R**3 * (eps_p - 1)/(eps_p + 2)
+    alpha_e = alpha_e_0/(1 - 1j * k**3 * alpha_e_0 / (6*np.pi*eps0_const))
 
-#     alpha_m_0 = 4*np.pi * mu0_const / (k**3) * (eps_p - 1) * (k*R)**5/30
-#     alpha_m = alpha_m_0/(1 - 1j * k**3 * alpha_m_0 /
-#                          (6*np.pi*mu0_const))/mu0_const
-#     return alpha_e, alpha_m
+    alpha_m_0 = 4*np.pi * mu0_const / (k**3) * (eps_p - 1) * (k*R)**5/30
+    alpha_m = alpha_m_0/(1 - 1j * k**3 * alpha_m_0 /
+                         (6*np.pi*mu0_const))/mu0_const
+    return alpha_e, alpha_m
 
 
 def initial_field(wl, alpha, amplitude, eps_interp, point, phase, a_angle):
