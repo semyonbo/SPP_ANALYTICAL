@@ -82,7 +82,7 @@ def optimize_for_theta(theta):
         return None
 
 def main():
-    results = Parallel(n_jobs=16, verbose=10)(
+    results = Parallel(n_jobs=-1, verbose=10)(
         delayed(optimize_for_theta)(theta) for theta in theta_list
     )
     # Убираем None из результатов:
