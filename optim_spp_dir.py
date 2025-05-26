@@ -12,10 +12,10 @@ OBS_POINT = [0, 0, 2+RADIUS]
 ANGLE = 25*np.pi/180
 
 # Parameter grids
-grid_wl = np.linspace(800, 1100, 50)
-grid_phase = np.linspace(-np.pi, np.pi, 100)
-grid_ai = np.linspace(0, np.pi / 2, 100)
-theta_list = np.linspace(0, 2 * np.pi, 100)
+grid_wl = np.linspace(800, 1000, 50)
+grid_phase = np.linspace(-np.pi, np.pi, 200)
+grid_ai = np.linspace(0, np.pi / 2, 200)
+theta_list = np.linspace(0, 2 * np.pi, 200)
 
 # Material dispersions
 eps_Au = frenel.get_interpolate('Au')
@@ -102,8 +102,8 @@ def main():
         for i in range(n)
     ]
 
-    np.savez('spp_optim_clean_v2.npz', results=output, thetas=theta_list)
-    print("✅ Done: results saved to spp_optim_clean_v2.npz")
+    np.savez('spp_optim_clean_v3.npz', results=output, thetas=theta_list)
+    print("✅ Done: results saved to spp_optim_clean_v3.npz")
 
 
 if __name__ == '__main__':
