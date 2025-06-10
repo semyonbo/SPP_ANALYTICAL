@@ -4,6 +4,7 @@ from MieSppForce import frenel
 from scipy.integrate import quad
 from cmath import sqrt
 from functools import lru_cache
+from scipy.special import j0, j1
 
 import warnings
 from scipy.integrate import IntegrationWarning
@@ -256,6 +257,40 @@ def dz_rot_green_E_H(wl, z0, eps_interp, stop, rel_tol=1e-8):
     
     return dz_drotG_E, dz_drotG_H
     
+
     
+@lru_cache(maxsize=None) 
+def getGEs_int(wl, eps_interp, h_nm, r_nm, stop):
+    k0 = 2*np.pi/wl*1e9
+    h=h_nm*1e-9
+    r=r_nm*1e-9
+    j2 = lambda x: 2*j1(x)/x - j0(x)
+    rs = lambda kr : frenel.reflection_coeff(wl, eps_interp, kr)[2]
+    kz = lambda kr: k0*sqrt(1 - kr**2)
     
+    int_GE_xx1 = k0*quad(lambda kr: rs(kr) * j1(kr*r*k0) * kr* k0 * np.exp(1j*kz(kr)*h) /kz(kr) , 0, stop, complex_func=True)[0]
+    int_GE_xx2 = k0*quad(lambda kr: rs(kr) * j2(kr*r*k0) * (kr*k0)**2 * np.exp(1j*kz(kr)*h) /kz(kr), 0, stop, complex_func=True)[0]
+    int_GE_xy = k0*quad(lambda kr: j2(kr*r*k0) *rs(kr)*(kr*k0)**2 *np.exp(1j*kz(kr)*h) /kz(kr), 0, stop, complex_func=True)[0]
+    int_GE_yy1 = k0*quad(lambda kr: rs(kr) *j0(kr*r*k0)*(kr*k0)**2 * np.exp(1j*kz(kr)*h) /kz(kr), 0 , stop, complex_func=True)[0]
+    int_GE_yy2 = k0*quad(lambda kr: rs(kr)*j1(kr*r*k0)*kr*k0 * np.exp(1j*kz(kr)*h) /kz(kr), 0, stop, complex_func=True)[0]
+    return int_GE_xx1, int_GE_xx2, int_GE_xy, int_GE_yy1, int_GE_yy2
+
+
+
+def get_Ge(wl, eps_interp, z0_nm, r_nm, phi, z_nm, stop):
+    h = (z_nm+z0_nm)*1e-9
+    r = r_nm*1e-9
+    int_GE_xx1, int_GE_xx2, int_GE_xy, int_GE_yy1, int_GE_yy2 = getGEs_int(wl, eps_interp, h, r, stop)
+    GESxx = 1j/(4*np.pi) * ( int_GE_xx1 * np.cos(2*phi)/r + np.sin(phi)**2 * int_GE_xx2)
+    GESxy = 1j*np.sin(2*phi)/(8*np.pi) * int_GE_xy
+    GESyy = 1j/(4*np.pi) * (int_GE_yy1 * np.cos(phi)**2 + int_GE_yy2*np.cos(2*phi)/r )
+
+@lru_cache(maxsize=None) 
+def getGEp_int(wl, eps_interp, h_nm, r_nm, stop):
+    k0 = 2*np.pi/wl*1e9
+    h=h_nm*1e-9
+    r=r_nm*1e-9
+    j2 = lambda x: 2*j1(x)/x - j0(x)
+    rp = lambda kr : frenel.reflection_coeff(wl, eps_interp, kr)[0]
+    kz = lambda kr: k0*sqrt(1 - kr**2)
     
