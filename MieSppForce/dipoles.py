@@ -129,7 +129,7 @@ def initial_field(wl, alpha, amplitude, eps_interp, point, phase, a_angle):
 #     return p, m
 
 
-def calc_dipoles_v2(wl, eps_Au, point, R, eps_Si, alpla, amplitude, phase, a_angle, stop):
+def calc_dipoles_v2(wl, eps_Au, point, R, eps_Si, alpha, amplitude, phase, a_angle, stop):
     mu = 1
     eps = 1
     k = 2*np.pi/wl/1e-9
@@ -142,7 +142,7 @@ def calc_dipoles_v2(wl, eps_Au, point, R, eps_Si, alpla, amplitude, phase, a_ang
     (G_ref_E, G_ref_H, rot_G_ref_E, rot_G_ref_H) = cached_green_functions(
         wl, z0, eps_Au, stop)
 
-    E0, H0 = initial_field(wl, alpla, amplitude, eps_Au, point, phase, a_angle)
+    E0, H0 = initial_field(wl, alpha, amplitude, eps_Au, point, phase, a_angle)
 
     G_ee = mu*k**2/eps0_const * G_ref_E
     G_em = 1j*omega*mu*mu0_const * rot_G_ref_H
