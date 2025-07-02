@@ -8,6 +8,7 @@ from scipy.special import j0, j1
 from scipy.special import jn
 import warnings
 from scipy.integrate import IntegrationWarning
+from numpy import sin,cos
 
 # warnings.filterwarnings("ignore", category=IntegrationWarning)
 
@@ -271,12 +272,15 @@ def get_GE_int(wl, eps_interp, h_nm, r_nm, stop):
     kz = lambda kr: k*sqrt(1 - kr**2)
     exp_fac = lambda kr: np.exp(1j*kz(kr)*h)
     
-    int_GExx1 = k*quad(lambda kr: exp_fac(kr)/kz(kr) * (kz(kr)**2 * rp(kr) + k**2 * rs(kr) ) * j1(kr*k*r), 0, stop, complex_func=True)[0]
-    int_GExx2 = k*quad(lambda kr: exp_fac(kr) * kz(kr) * kr*k*j0(kr*k*r) *rp(kr), 0, stop, complex_func=True)[0]
-    int_GExx3 = k*quad(lambda kr: exp_fac(kr)/kz(kr) * kr*k*j0(kr*k*r) * k**2 * rs(kr),0, stop, complex_func=True)[0]
-    int_GExy = k*quad(lambda kr: kr*k/kz(kr) * (kz(kr)**2 * rp(kr) + k**2 * rs(kr))*j2(kr*k*r)*exp_fac(kr),0, stop, complex_func=True)[0]
-    int_GExz = k*quad(lambda kr: exp_fac(kr)*(kr*k)**2 *rp(kr)* j1(kr*k*r),0, stop, complex_func=True)[0]
-    int_GEzz = k*quad(lambda kr: exp_fac(kr)*(kr*k)**3*rp(kr)*j0(kr*r*k)/kz(kr),0, stop, complex_func=True)[0]
+    #k_spp = np.sqrt(eps_interp(wl)/(eps_interp(wl)+1)).real
+    k_spp =1
+    
+    int_GExx1 = k*quad(lambda kr: exp_fac(kr)/kz(kr) * (kz(kr)**2 * rp(kr) + k**2 * rs(kr) ) * j1(kr*k*r), 0, stop, complex_func=True, points=[1,k_spp])[0]
+    int_GExx2 = k*quad(lambda kr: exp_fac(kr) * kz(kr) * kr*k*j0(kr*k*r) *rp(kr), 0, stop, complex_func=True, points=[1,k_spp])[0]
+    int_GExx3 = k*quad(lambda kr: exp_fac(kr)/kz(kr) * kr*k*j0(kr*k*r) * k**2 * rs(kr),0, stop, complex_func=True, points=[1,k_spp])[0]
+    int_GExy = k*quad(lambda kr: kr*k/kz(kr) * (kz(kr)**2 * rp(kr) + k**2 * rs(kr))*j2(kr*k*r)*exp_fac(kr),0, stop, complex_func=True, points=[1,k_spp])[0]
+    int_GExz = k*quad(lambda kr: exp_fac(kr)*(kr*k)**2 *rp(kr)* j1(kr*k*r),0, stop, complex_func=True, points=[1,k_spp])[0]
+    int_GEzz = k*quad(lambda kr: exp_fac(kr)*(kr*k)**3*rp(kr)*j0(kr*r*k)/kz(kr),0, stop, complex_func=True, points=[1,k_spp])[0]
     
     return int_GExx1, int_GExx2, int_GExx3, int_GExy, int_GExz, int_GEzz
 
@@ -303,6 +307,62 @@ def getGE(wl, eps_interp, z0_nm, r_nm, phi, z_nm, stop):
                    [GEzx, GEzy, GEzz]], dtype=np.complex128)
     return GE
     
+    
+def cal_GE_slow(wl, eps_interp, z0_nm, r_nm, phi, z_nm, stop):
+    k = 2*np.pi/wl*1e9
+    Pi = np.pi
+    r = r_nm*1e-9
+    r_safe = np.maximum(r, eps_val)
+    h_nm = z_nm+z0_nm
+    h=h_nm*1e-9
+    r=r_nm*1e-9
+    
+    #k_spp = np.sqrt(eps_interp(wl)/(eps_interp(wl)+1)).real
+    k_spp =1
+    
+    j2 = lambda x: jn(2,x)
+    rs = lambda kr : frenel.reflection_coeff(wl, eps_interp, kr)[2]
+    rp = lambda kr : frenel.reflection_coeff(wl, eps_interp, kr)[0]
+    kz = lambda kr: k*sqrt(1 - kr**2)
+    
+    
+    exp_fac = lambda kr: np.exp(1j*kz(kr)*h)
+
+ 
+ 
+    intGExx = lambda kr: -1j*exp_fac(kr)/(4*Pi*k**2*kz(kr)*r_safe) *(-1*((kz(kr)**2 * rp(kr) + k**2 * rs(kr)) *j1(kr*k*r_safe) * cos(2*phi) ) + kr*k*r_safe*j0(kr*k*r_safe) * (kz(kr)**2 * rp(kr)*cos(phi)**2- k**2 * rs(kr)*sin(phi)**2))
+
+    intGExy = lambda kr: 1j*exp_fac(kr) * kr*k*(kz(kr)**2 * rp(kr) + k**2 * rs(kr)) * j2(kr*k*r_safe) * sin(2*phi) / (8 * k**2 * kz(kr)*Pi)
+    
+    intGExz = lambda kr: exp_fac(kr) * (kr*k)**2 * rp(kr) * j1(kr*k*r_safe)  * cos(phi)/ (4 * k**2 * Pi)
+    
+    intGEyx = lambda kr: 1j * exp_fac(kr) * kr*k * (kz(kr)**2 * rp(kr)+k**2*rs(kr)) * j2(kr*k*r_safe) * sin(2*phi) / (8 * k**2 *Pi * kz(kr))
+    
+    intGEyy = lambda kr: -1j*exp_fac(kr)/(4*Pi*k**2*kz(kr)*r_safe) * (( kz(kr)**2 * rp(kr) + k**2 * rs(kr)) * j1(kr*k*r_safe)*cos(2*phi)+ kr*k*r_safe*j0(kr*k*r_safe) * (-k**2*rs(kr)*cos(phi)**2+kz(kr)**2*rp(kr)*sin(phi)**2) )
+    
+    intGEyz = lambda kr: exp_fac(kr)* (kr*k)**2 *rp(kr) * j1(kr*k*r_safe) * sin(phi)/(4*Pi*k**2)
+    
+    intGEzx = lambda kr: -1 * exp_fac(kr) * (kr*k)**2 * rp(kr) * j1(kr*k*r_safe) * cos(phi) / (4 * k**2 *Pi)
+    
+    intGEzy = lambda kr: -1 * exp_fac(kr) * (kr*k)**2 * rp(kr) * j1(kr*k*r_safe) * sin(phi) / (4*k**2 * Pi)
+    
+    intGEzz = lambda kr: 1j*exp_fac(kr) * (kr*k)**3 * rp(kr) * j0(kr*k*r_safe) /(4*k**2 * kz(kr)*Pi)
+    
+    GExx = k*quad( intGExx, 0, stop, epsrel=1e-8, complex_func=True, points=[1,k_spp])[0]
+    GExy = k*quad( intGExy, 0, stop, epsrel=1e-8, complex_func=True, points=[1,k_spp])[0]
+    GExz = k*quad( intGExz, 0, stop, epsrel=1e-8, complex_func=True, points=[1,k_spp])[0]
+    GEyx = k*quad( intGEyx, 0, stop, epsrel=1e-8, complex_func=True, points=[1,k_spp])[0]
+    GEyy = k*quad( intGEyy, 0, stop, epsrel=1e-8, complex_func=True, points=[1,k_spp])[0]
+    GEyz = k*quad( intGEyz, 0, stop, epsrel=1e-8, complex_func=True, points=[1,k_spp])[0]
+    GEzx = k*quad( intGEzx, 0, stop, epsrel=1e-8, complex_func=True, points=[1,k_spp])[0]
+    GEzy = k*quad( intGEzy, 0, stop, epsrel=1e-8, complex_func=True, points=[1,k_spp])[0]
+    GEzz = k*quad( intGEzz, 0, stop, epsrel=1e-8, complex_func=True, points=[1,k_spp])[0]
+    
+
+    GE = np.array([[GExx, GExy, GExz],
+                   [GEyx, GEyy, GEyz],
+                   [GEzx, GEzy, GEzz]], dtype=np.complex128)
+    return GE
     
 
 @lru_cache(maxsize=None) 
