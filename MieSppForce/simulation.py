@@ -14,9 +14,14 @@ Q_ = ureg.Quantity
 pint.set_application_registry(ureg)
 ureg.setup_matplotlib(True)
 
+@dataclass
+class Grid:
+    def generate_points(self) -> np.ndarray:
+        return NotImplementedError
+
 
 @dataclass
-class CylindricalGrid:
+class CylindricalGrid(Grid):
     r: Q_
     phi: Q_
     z: Q_
@@ -29,6 +34,28 @@ class CylindricalGrid:
         rr, pp, zz = np.meshgrid(r_vals, phi_vals, z_vals, indexing='ij')
         points = np.stack([rr.ravel(), pp.ravel(), zz.ravel()], axis=1)
         return points
+    
+@dataclass 
+class SphericalGrid(Grid):
+    r: Q_
+    theta: Q_
+    phi: Q_
+    
+    def translate_to_cylindrical(self) -> np.ndarray:
+        r_vals = self.r.to('nm').magnitude
+        theta_vals = self.theta.to('rad').magnitude
+        phi_vals = self.phi.to('rad').magnitude
+        
+        rr, tt, pp = np.meshgrid(r_vals, theta_vals, phi_vals, indexing='ij')
+        r_cyl = rr * np.sin(tt)
+        z = rr * np.cos(tt)
+
+        points = np.stack([r_cyl.ravel(), pp.ravel(), z.ravel()], axis=1)
+        return points
+
+    def generate_points(self) -> np.ndarray:
+        """Совместимый интерфейс: возвращает цилиндрические точки (r,phi,z)."""
+        return self.translate_to_cylindrical()
     
 
 class SimulationConfig:
@@ -291,7 +318,7 @@ class FieldsCalculator:
     def __init__(self, config: SimulationConfig):
         self.config = config
 
-    def compute(self, grid: CylindricalGrid, field_type=None) -> FieldResult:
+    def compute(self, grid: Grid, field_type=None) -> FieldResult:
 
         points = grid.generate_points()
         results = []
@@ -338,12 +365,15 @@ class FieldsCalculator:
         return FieldResult(df)
     
 class DiagramCalculator:
-    def __init__(self, config: SimulationConfig):
+    def __init__(self, config: SimulationConfig, grid=None):
         self.config = config
-        self.grid = CylindricalGrid(self.config.wl*20, 
+        if grid == None:
+            self.grid = CylindricalGrid(self.config.wl*20, 
                                     np.linspace(0,2*np.pi,300)*ureg.rad,
                                     np.array([0])*ureg.nm)
-    
+        else:
+            self.grid=grid
+        
     def compute(self):
         FarField = FieldsCalculator(self.config).compute(self.grid, 'sub')
         Hphi_abs2 = FarField.df['Hphi_abs2'].apply(lambda x: x.magnitude)
@@ -363,7 +393,7 @@ class SweepRunner:
         compute_diagram: bool = True,
         compute_force: bool = False,
         compute_fields: bool = False,
-        grid: CylindricalGrid = None
+        grid: Grid = None
     ):
         self.base_config = base_config
         self.param = sweep_param
