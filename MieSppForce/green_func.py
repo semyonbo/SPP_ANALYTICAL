@@ -1,16 +1,12 @@
 import numpy as np
-import scipy
 from MieSppForce import frenel
 from scipy.integrate import quad
 from cmath import sqrt
 from functools import lru_cache
-from scipy.special import j0, j1
-from scipy.special import jn
-import warnings
-from scipy.integrate import IntegrationWarning
+from scipy.special import j0, j1, jn
 from numpy import sin,cos
+from scipy import integrate
 
-# warnings.filterwarnings("ignore", category=IntegrationWarning)
 
 eps_val = np.finfo(float).eps
 
@@ -55,6 +51,28 @@ def green_ref_00(wl, z0, eps_interp, stop, rel_tol=1e-8):
     G_ref_H = 1j * IntH/(8*np.pi)*k
     return G_ref_E, G_ref_H
 
+@lru_cache(maxsize=None)
+def green_ref_v2(wl, z0, eps_interp, stop):
+    k = 2*np.pi/wl/1e-9
+    
+    IntE = np.zeros((3, 3), dtype=np.complex128)
+    IntH = np.zeros((3, 3), dtype=np.complex128)
+    
+    kr_res = np.sqrt(eps_interp(wl)/(eps_interp(wl)+1)).real
+    
+    if stop==1:
+        points = [1]
+    else: 
+        points=[1, kr_res]
+    
+    for i in range(3):
+        IntE[i, i] = quad(lambda kr: green_ref_00_integrand(kr, wl, z0, eps_interp)[0][i, i], 0, stop, complex_func=True, points=points)[0]
+        IntH[i, i] = quad(lambda kr: green_ref_00_integrand(kr, wl, z0, eps_interp)[1][i, i], 0, stop, complex_func=True, points=points)[0]
+        
+    G_ref_E = 1j * IntE/(8*np.pi)*k
+    G_ref_H = 1j * IntH/(8*np.pi)*k
+    return G_ref_E, G_ref_H
+
 
 def rot_green_ref_00_integrand(kr, wl, z0, eps_interp):
     kz = sqrt(1 - kr**2)
@@ -84,6 +102,27 @@ def rot_green_ref_00(wl, z0, eps_interp, stop, rel_tol=1e-8):
             kr, wl, z0, eps_interp)[1, 0], 0, 1, epsrel=rel_tol, complex_func=True)[0]\
             + quad(lambda kr: rot_green_ref_00_integrand(
                 kr, wl, z0, eps_interp)[1, 0], 1, stop, epsrel=rel_tol, complex_func=True)[0]
+
+    IntE = np.zeros((3, 3), dtype=np.complex128)
+    IntE[0, 1] = IntE01
+    IntE[1, 0] = IntE10
+    rot_G_ref_E = IntE/(8*np.pi)*k**2
+    rot_G_ref_H = -1 * IntE/(8*np.pi)*k**2
+    return rot_G_ref_E, rot_G_ref_H
+
+@lru_cache(maxsize=None)
+def rot_green_ref_v2(wl, z0, eps_interp, stop):
+    k = 2*np.pi/wl/1e-9
+
+    kr_res = np.sqrt(eps_interp(wl)/(eps_interp(wl)+1)).real
+    
+    if stop==1:
+        points = [1]
+    else: 
+        points=[1, kr_res]
+        
+    IntE01 = quad(lambda kr: rot_green_ref_00_integrand(kr, wl, z0, eps_interp)[0, 1], 0, stop, complex_func=True, points=points)[0]
+    IntE10 = quad(lambda kr: rot_green_ref_00_integrand(kr, wl, z0, eps_interp)[1, 0], 0, stop, complex_func=True, points=points)[0]
 
     IntE = np.zeros((3, 3), dtype=np.complex128)
     IntE[0, 1] = IntE01
@@ -259,38 +298,205 @@ def dz_rot_green_E_H(wl, z0, eps_interp, stop, rel_tol=1e-8):
     
     return dz_drotG_E, dz_drotG_H
 
+#NEW CODE FOR GREENS FUNC
+
+def integrator(f, limit=5000):
+    
+    def f_subst(t):
+        kr = np.tan(t)
+        return f(kr) * (1 / np.cos(t)**2)
+
+    I, err = integrate.quad(lambda t: f_subst(t), 0, np.pi/2, limit=limit, points=[np.pi/4], complex_func=True)
+    return I
+
+class GreensFunctionIntegrationBase:
+    def __init__(self, wl, eps_interp, z0, r, z):
+        self.wl = wl
+        self.eps_interp = eps_interp
+        self.k = 2 * np.pi / wl
+        self.nm_to_m = 1e-9
+        self.z0 = z0
+        self.z = z
+        self.h = self.z + self.z0
+        self.r = r
+        
+        assert self.r != 0, "Ошибка: радиус r не должен быть равен нулю (используй частный случай)."
+       
+    def rp(self,kr):
+        return frenel.reflection_coeff(self.wl, self.eps_interp, kr)[0]
+    
+    def rs(self,kr): 
+        return frenel.reflection_coeff(self.wl, self.eps_interp, kr)[2]
+    
+    def j2(self,x):
+        return jn(2,x)
+    
+    def kz(self,kr):
+        return self.k*sqrt(1 - kr**2+0*1j)
+
+    def exp_fac(self,kr):
+        return np.exp(1j*self.kz(kr)*self.h)
+    
+    
+class GreensFunctionE(GreensFunctionIntegrationBase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._integrals_cache = None 
+        
+    def func_int_GExx1(self,kr):
+        return self.exp_fac(kr)/(self.kz(kr)) * (self.kz(kr)**2 * self.rp(kr) + self.k**2  * self.rs(kr) ) * j1(kr*self.k*self.r)
+    
+    def func_int_GExx2(self,kr):
+        return self.exp_fac(kr) * self.kz(kr) * kr*self.k*j0(kr*self.k*self.r) *self.rp(kr) 
+    
+    def func_int_GExx3(self, kr):
+        return self.exp_fac(kr)/self.kz(kr) * kr*self.k*j0(kr*self.k*self.r) * self.k**2 * self.rs(kr)
+    
+    def func_intGExy(self,kr):
+        return kr*self.k/self.kz(kr) * (self.kz(kr)**2 * self.rp(kr) + self.k**2 * self.rs(kr))*self.j2(kr*self.k*self.r)*self.exp_fac(kr)
+    
+    def func_int_GExz(self,kr):
+        return self.exp_fac(kr)*(kr*self.k)**2 *self.rp(kr)* j1(kr*self.k*self.r)
+    
+    def func_int_GEzz(self,kr):
+         return self.exp_fac(kr)*(kr*self.k)**3*self.rp(kr)*j0(kr*self.r*self.k)/self.kz(kr) 
+    
+    def integrate(self):
+        if self._integrals_cache is not None:
+            return self._integrals_cache
+    
+        int_GExx1 = self.k/self.nm_to_m**2 * integrator(self.func_int_GExx1)
+        
+        int_GExx2 = self.k/self.nm_to_m**3 * integrator(self.func_int_GExx2)
+        
+        int_GExx3 = self.k/self.nm_to_m**3 * integrator(self.func_int_GExx3)
+        
+        int_GExy = self.k/self.nm_to_m**3*integrator(self.func_intGExy)
+        
+        int_GExz =self.k/self.nm_to_m**3 * integrator(self.func_int_GExz)
+        
+        int_GEzz = self.k/self.nm_to_m**3 * integrator(self.func_int_GEzz)
+        
+        self._integrals_cache = (int_GExx1, int_GExx2, int_GExx3, int_GExy, int_GExz, int_GEzz)
+        return self._integrals_cache
+    
+    def calc(self, phi):
+
+        r_m = self.r*self.nm_to_m
+        k_m = self.k/self.nm_to_m
+        r_safe = np.maximum(r_m, eps_val)
+        int_GExx1, int_GExx2, int_GExx3, int_GExy, int_GExz, int_GEzz = self.integrate()
+        
+        GExx = -1j/(4*np.pi*k_m**2) *( -int_GExx1 * np.cos(2*phi)/r_safe  + int_GExx2 * np.cos(phi)**2 -int_GExx3*np.sin(phi)**2)
+        GExy = 1j*np.sin(2*phi)/(8*np.pi*k_m**2) * int_GExy
+        GExz = np.cos(phi)/(4*np.pi*k_m**2) * int_GExz
+        GEyx = GExy
+        GEyy = -1j/(4*np.pi*k_m**2)* (int_GExx1*np.cos(2*phi)/r_safe + int_GExx2 * np.sin(phi)**2  - int_GExx3*np.cos(phi)**2)
+        GEyz = np.sin(phi)/(4*np.pi*k_m**2) * int_GExz
+        GEzx = - GExz
+        GEzy = - GEyz
+        GEzz = 1j/(4*np.pi*k_m**2) * int_GEzz
+        
+        GE = np.array([[GExx, GExy, GExz],
+                    [GEyx, GEyy, GEyz],
+                    [GEzx, GEzy, GEzz]], dtype=np.complex128)
+        return GE
+        
+        
+            
 
 @lru_cache(maxsize=None) 
-def get_GE_int(wl, eps_interp, h_nm, r_nm, stop):
-    k = 2*np.pi/wl*1e9
-    h=h_nm*1e-9
-    r=r_nm*1e-9
-    #j2 = lambda x: 2*j1(x)/x - j0(x)
-    j2 = lambda x: jn(2,x)
-    rs = lambda kr : frenel.reflection_coeff(wl, eps_interp, kr)[2]
-    rp = lambda kr : frenel.reflection_coeff(wl, eps_interp, kr)[0]
-    kz = lambda kr: k*sqrt(1 - kr**2)
-    exp_fac = lambda kr: np.exp(1j*kz(kr)*h)
+def GE_int(wl, eps_interp, h, r):
+    nm_to_m = 1e-9
+    k = 2*np.pi/wl
     
-    #k_spp = np.sqrt(eps_interp(wl)/(eps_interp(wl)+1)).real
-    k_spp =1
+    def rp(kr):
+        return frenel.reflection_coeff(wl, eps_interp, kr)[0]
     
-    int_GExx1 = k*quad(lambda kr: exp_fac(kr)/kz(kr) * (kz(kr)**2 * rp(kr) + k**2 * rs(kr) ) * j1(kr*k*r), 0, stop, complex_func=True, points=[1,k_spp])[0]
-    int_GExx2 = k*quad(lambda kr: exp_fac(kr) * kz(kr) * kr*k*j0(kr*k*r) *rp(kr), 0, stop, complex_func=True, points=[1,k_spp])[0]
-    int_GExx3 = k*quad(lambda kr: exp_fac(kr)/kz(kr) * kr*k*j0(kr*k*r) * k**2 * rs(kr),0, stop, complex_func=True, points=[1,k_spp])[0]
-    int_GExy = k*quad(lambda kr: kr*k/kz(kr) * (kz(kr)**2 * rp(kr) + k**2 * rs(kr))*j2(kr*k*r)*exp_fac(kr),0, stop, complex_func=True, points=[1,k_spp])[0]
-    int_GExz = k*quad(lambda kr: exp_fac(kr)*(kr*k)**2 *rp(kr)* j1(kr*k*r),0, stop, complex_func=True, points=[1,k_spp])[0]
-    int_GEzz = k*quad(lambda kr: exp_fac(kr)*(kr*k)**3*rp(kr)*j0(kr*r*k)/kz(kr),0, stop, complex_func=True, points=[1,k_spp])[0]
+    def rs(kr): 
+        return frenel.reflection_coeff(wl, eps_interp, kr)[2]
+    
+    def j2(x):
+        return jn(2,x)
+    
+    def kz(kr):
+        return k*sqrt(1 - kr**2+0*1j)
+
+    def exp_fac(kr):
+        return np.exp(1j*kz(kr)*h)
+    
+    def func_int_GExx1(kr):
+        return exp_fac(kr)/(kz(kr)) * (kz(kr)**2 * rp(kr) + k**2  * rs(kr) ) * j1(kr*k*r)
+    
+
+    int_GExx1 = k/nm_to_m**2 * integrator(func_int_GExx1)
+    
+    def func_int_GExx2(kr):
+        return exp_fac(kr) * kz(kr) * kr*k*j0(kr*k*r) *rp(kr) 
+    
+    int_GExx2 =  k/nm_to_m**3 * integrator(func_int_GExx2)
+    
+    def func_int_GExx3(kr):
+        return exp_fac(kr)/kz(kr) * kr*k*j0(kr*k*r) * k**2 * rs(kr)
+    
+    int_GExx3 = k/nm_to_m**3 * integrator(func_int_GExx3)
+    
+    def func_intGExy(kr):
+        return kr*k/kz(kr) * (kz(kr)**2 * rp(kr) + k**2 * rs(kr))*j2(kr*k*r)*exp_fac(kr)
+    
+    int_GExy = k/nm_to_m**3*integrator(func_intGExy)
+    
+    def func_int_GExz(kr):
+        return exp_fac(kr)*(kr*k)**2 *rp(kr)* j1(kr*k*r)
+    
+    int_GExz = k/nm_to_m**3 * integrator(func_int_GExz)
+        
+    def func_int_GEzz(kr):
+         return exp_fac(kr)*(kr*k)**3*rp(kr)*j0(kr*r*k)/kz(kr) 
+     
+    int_GEzz = k/nm_to_m**3 * integrator(func_int_GEzz)
+
     
     return int_GExx1, int_GExx2, int_GExx3, int_GExy, int_GExz, int_GEzz
 
-def getGE(wl, eps_interp, z0_nm, r_nm, phi, z_nm, stop):
+
+# @lru_cache(maxsize=None) 
+# def get_GE_int(wl, eps_interp, h_nm, r_nm, stop):
+    
+#     k = 2*np.pi/wl*1e9
+#     h=h_nm*1e-9
+#     r=r_nm*1e-9
+#     #j2 = lambda x: 2*j1(x)/x - j0(x)
+#     j2 = lambda x: jn(2,x)
+#     rs = lambda kr : frenel.reflection_coeff(wl, eps_interp, kr)[2]
+#     rp = lambda kr : frenel.reflection_coeff(wl, eps_interp, kr)[0]
+#     kz = lambda kr: k*sqrt(1 - kr**2)
+
+#     exp_fac = lambda kr: np.exp(1j*kz(kr)*h)
+    
+#     k_spp = np.sqrt(eps_interp(wl)/(eps_interp(wl)+1)).real
+#     ksppIM = np.sqrt(eps_interp(wl)/(eps_interp(wl)+1)).imag
+
+#     points = [1,k_spp, ksppIM]
+#     limit= 100
+    
+#     int_GExx1 = k*quad(lambda kr: exp_fac(kr)/kz(kr) * (kz(kr)**2 * rp(kr) + k**2 * rs(kr) ) * j1(kr*k*r), 0, stop, complex_func=True, points=points, limit=limit)[0]
+#     int_GExx2 = k*quad(lambda kr: exp_fac(kr) * kz(kr) * kr*k*j0(kr*k*r) *rp(kr), 0, stop, complex_func=True, points=points, limit=limit)[0]
+#     int_GExx3 = k*quad(lambda kr: exp_fac(kr)/kz(kr) * kr*k*j0(kr*k*r) * k**2 * rs(kr),0, stop, complex_func=True, points=points, limit=limit)[0]
+#     int_GExy = k*quad(lambda kr: kr*k/kz(kr) * (kz(kr)**2 * rp(kr) + k**2 * rs(kr))*j2(kr*k*r)*exp_fac(kr),0, stop, complex_func=True, points=points, limit=limit)[0]
+#     int_GExz = k*quad(lambda kr: exp_fac(kr)*(kr*k)**2 *rp(kr)* j1(kr*k*r),0, stop, complex_func=True, points=points, limit=limit)[0]
+#     int_GEzz = k*quad(lambda kr: exp_fac(kr)*(kr*k)**3*rp(kr)*j0(kr*r*k)/kz(kr),0, stop, complex_func=True, points=points, limit=limit)[0]
+
+    
+#     return int_GExx1, int_GExx2, int_GExx3, int_GExy, int_GExz, int_GEzz
+
+def getGE(wl, eps_interp, z0_nm, r_nm, phi, z_nm):
     assert r_nm != 0, "Ошибка: радиус r не должен быть равен нулю (используй частный случай)."
     k = 2*np.pi/wl*1e9
     h_nm = z_nm+z0_nm
     r = r_nm*1e-9
     r_safe = np.maximum(r, eps_val)
-    int_GExx1, int_GExx2, int_GExx3, int_GExy, int_GExz, int_GEzz = get_GE_int(wl, eps_interp, h_nm, r_nm, stop)
+    int_GExx1, int_GExx2, int_GExx3, int_GExy, int_GExz, int_GEzz = GE_int(wl, eps_interp, h_nm, r_nm)
     
     GExx = -1j/(4*np.pi*k**2) *( -int_GExx1 * np.cos(2*phi)/r_safe  + int_GExx2 * np.cos(phi)**2 -int_GExx3*np.sin(phi)**2)
     GExy = 1j*np.sin(2*phi)/(8*np.pi*k**2) * int_GExy
@@ -317,8 +523,8 @@ def cal_GE_slow(wl, eps_interp, z0_nm, r_nm, phi, z_nm, stop):
     h=h_nm*1e-9
     r=r_nm*1e-9
     
-    #k_spp = np.sqrt(eps_interp(wl)/(eps_interp(wl)+1)).real
-    k_spp =1
+    k_spp = np.sqrt(eps_interp(wl)/(eps_interp(wl)+1)).real
+    #k_spp =1
     
     j2 = lambda x: jn(2,x)
     rs = lambda kr : frenel.reflection_coeff(wl, eps_interp, kr)[2]
@@ -363,7 +569,62 @@ def cal_GE_slow(wl, eps_interp, z0_nm, r_nm, phi, z_nm, stop):
                    [GEyx, GEyy, GEyz],
                    [GEzx, GEzy, GEzz]], dtype=np.complex128)
     return GE
+
+@lru_cache(maxsize=None) 
+def GH_int(wl, eps_interp, h, r):
+    nm_to_m = 1e-9
+    k = 2*np.pi/wl
     
+    def rp(kr):
+        return frenel.reflection_coeff(wl, eps_interp, kr)[0]
+    
+    def rs(kr): 
+        return frenel.reflection_coeff(wl, eps_interp, kr)[2]
+    
+    def j2(x):
+        return jn(2,x)
+    
+    def kz(kr):
+        return k*sqrt(1 - kr**2+0*1j)
+
+    def exp_fac(kr):
+        return np.exp(1j*kz(kr)*h)
+    
+    def func_int_GHxx1(kr):
+        return exp_fac(kr)/(kz(kr)) * (kz(kr)**2 * rs(kr) + k**2  * rp(kr) ) * j1(kr*k*r)
+    
+
+    int_GHxx1 = k/nm_to_m**2 * integrator(func_int_GHxx1)
+    
+    def func_int_GHxx2(kr):
+        return exp_fac(kr) * kz(kr) * kr*k*j0(kr*k*r) *rs(kr) 
+    
+    int_GHxx2 =  k/nm_to_m**3 * integrator(func_int_GHxx2)
+    
+    def func_int_GHxx3(kr):
+        return exp_fac(kr)/kz(kr) * kr*k*j0(kr*k*r) * k**2 * rp(kr)
+    
+    int_GHxx3 = k/nm_to_m**3 * integrator(func_int_GHxx3)
+    
+    def func_intGHxy(kr):
+        return kr*k/kz(kr) * (kz(kr)**2 * rs(kr) + k**2 * rp(kr))*j2(kr*k*r)*exp_fac(kr)
+    
+    int_GHxy = k/nm_to_m**3*integrator(func_intGHxy)
+    
+    def func_int_GHxz(kr):
+        return exp_fac(kr)*(kr*k)**2 *rs(kr)* j1(kr*k*r)
+    
+    int_GHxz = k/nm_to_m**3 * integrator(func_int_GHxz)
+        
+    def func_int_GHzz(kr):
+         return exp_fac(kr)*(kr*k)**3*rs(kr)*j0(kr*r*k)/kz(kr) 
+     
+    int_GHzz = k/nm_to_m**3 * integrator(func_int_GHzz)
+
+    
+    return int_GHxx1, int_GHxx2, int_GHxx3, int_GHxy, int_GHxz, int_GHzz
+
+
 
 @lru_cache(maxsize=None) 
 def get_GH_int(wl, eps_interp, h_nm, r_nm, stop):
@@ -386,13 +647,13 @@ def get_GH_int(wl, eps_interp, h_nm, r_nm, stop):
     
     return int_GHxx1, int_GHxx2, int_GHxx3, int_GHxy, int_GHxz, int_GHzz
 
-def getGH(wl, eps_interp, z0_nm, r_nm, phi, z_nm, stop):
+def getGH(wl, eps_interp, z0_nm, r_nm, phi, z_nm):
     assert r_nm != 0, "Ошибка: радиус r не должен быть равен нулю (используй частный случай)."
     k = 2*np.pi/wl*1e9
     h_nm = z_nm+z0_nm
     r = r_nm*1e-9
     r_safe = np.maximum(r, eps_val)
-    int_GHxx1, int_GHxx2, int_GHxx3, int_GHxy, int_GHxz, int_GHzz = get_GH_int(wl, eps_interp, h_nm, r_nm, stop)
+    int_GHxx1, int_GHxx2, int_GHxx3, int_GHxy, int_GHxz, int_GHzz = GH_int(wl, eps_interp, h_nm, r_nm)
     
     GHxx = -1j/(4*np.pi*k**2) *( -int_GHxx1 * np.cos(2*phi)/r_safe  + int_GHxx2 * np.cos(phi)**2 -int_GHxx3*np.sin(phi)**2)
     GHxy = 1j*np.sin(2*phi)/(8*np.pi*k**2) * int_GHxy
@@ -423,7 +684,7 @@ def get_rotGE_int(wl, eps_interp, h_nm, r_nm, stop):
     
     int1 = k*quad(lambda kr: exp_fac(kr)*kr*k*rp(kr)*j2(kr*r*k), 0, stop, complex_func=True)[0]
     int2 = k*quad(lambda kr: exp_fac(kr)*kr*k*rs(kr)*j2(kr*k*r), 0, stop, complex_func=True)[0]
-    int3 = k*quad(lambda kr: exp_fac(kr)*(rp(kr)+rs(kr))*j1(kr*r*k), 0, stop, complex_func=True)[0]
+    int3 = k*quad(lambda kr: exp_fac(kr)*(rs(kr)+rp(kr))*j1(kr*r*k), 0, stop, complex_func=True)[0]
     int4 = k*quad(lambda kr: exp_fac(kr)*kr*k*rs(kr)*j0(kr*k*r) , 0, stop, complex_func=True)[0]
     int5 = k*quad(lambda kr: exp_fac(kr)*kr*k*rp(kr)*j0(kr*k*r), 0, stop, complex_func=True)[0]
     int6 = k*quad(lambda kr: exp_fac(kr)*(kr*k)**2/kz(kr)*rp(kr)*j1(kr*k*r), 0, stop, complex_func=True)[0]
@@ -431,13 +692,45 @@ def get_rotGE_int(wl, eps_interp, h_nm, r_nm, stop):
     
     return int1, int2, int3, int4, int5, int6, int7
 
-def get_rotGE(wl, eps_interp, z0_nm, r_nm, phi, z_nm, stop):
+@lru_cache(maxsize=None) 
+def rotGE_int(wl, eps_interp, h,r):
+    nm_to_m = 1e-9
+    k = 2*np.pi/wl
+    
+    def rp(kr):
+        return frenel.reflection_coeff(wl, eps_interp, kr)[0]
+    
+    def rs(kr): 
+        return frenel.reflection_coeff(wl, eps_interp, kr)[2]
+    
+    def j2(x):
+        return jn(2,x)
+    
+    def kz(kr):
+        return k*sqrt(1 - kr**2+0*1j)
+
+    def exp_fac(kr):
+        return np.exp(1j*kz(kr)*h)
+    
+    int1 = k*nm_to_m**2*integrator(lambda kr: exp_fac(kr)*kr*k*rp(kr)*j2(kr*r*k))
+    int2 = k*nm_to_m**2*integrator(lambda kr: exp_fac(kr)*kr*k*rs(kr)*j2(kr*k*r))
+    int3 = k*nm_to_m* integrator(lambda kr: exp_fac(kr)*(rs(kr)+rp(kr))*j1(kr*r*k))
+    int4 = k*nm_to_m**2* integrator(lambda kr: exp_fac(kr)*kr*k*rs(kr)*j0(kr*k*r))
+    int5 = k*nm_to_m**2* integrator(lambda kr: exp_fac(kr)*kr*k*rp(kr)*j0(kr*k*r))
+    int6 = k*nm_to_m**2 * integrator(lambda kr: exp_fac(kr)*(kr*k)**2/kz(kr)*rp(kr)*j1(kr*k*r))
+    int7 = k*nm_to_m**2* integrator(lambda kr: exp_fac(kr)*(kr*k)**2/kz(kr)*rs(kr)*j1(kr*k*r))
+    
+    return int1, int2, int3, int4, int5, int6, int7
+    
+    
+
+def get_rotGE(wl, eps_interp, z0_nm, r_nm, phi, z_nm):
     k = 2*np.pi/wl*1e9
     h_nm = z_nm+z0_nm
     r = r_nm*1e-9
     r_safe = np.maximum(r, eps_val)
     
-    int1, int2, int3, int4, int5, int6, int7 = get_rotGE_int(wl, eps_interp, h_nm, r_nm, stop)
+    int1, int2, int3, int4, int5, int6, int7 = rotGE_int(wl, eps_interp, h_nm, r_nm)
     
     rotGExx = np.sin(2*phi)/(8*np.pi) * (int1+int2)
     rotGExy = -1*np.cos(2*phi)/(4*np.pi*r_safe) * int3 + np.cos(phi)**2/(4*np.pi) *int4 - np.sin(phi)**2/(4*np.pi) * int5
@@ -455,13 +748,13 @@ def get_rotGE(wl, eps_interp, z0_nm, r_nm, phi, z_nm, stop):
     return rotGE
 
 
-def get_rotGH(wl, eps_interp, z0_nm, r_nm, phi, z_nm, stop):
+def get_rotGH(wl, eps_interp, z0_nm, r_nm, phi, z_nm):
     k = 2*np.pi/wl*1e9
     h_nm = z_nm+z0_nm
     r = r_nm*1e-9
     r_safe = np.maximum(r, eps_val)
     
-    int1, int2, int3, int4, int5, int6, int7 = get_rotGE_int(wl, eps_interp, h_nm, r_nm, stop)
+    int1, int2, int3, int4, int5, int6, int7 = rotGE_int(wl, eps_interp, h_nm, r_nm)
     
     rotGExx = np.sin(2*phi)/(8*np.pi) * (int1+int2)
     rotGExy = -1*np.cos(2*phi)/(4*np.pi*r_safe) * int3 + np.cos(phi)**2/(4*np.pi) *int5- np.sin(phi)**2/(4*np.pi) * int4
@@ -478,28 +771,3 @@ def get_rotGH(wl, eps_interp, z0_nm, r_nm, phi, z_nm, stop):
 
     return rotGE
 
-# @lru_cache(maxsize=None) 
-# def get_rotGEs_int(wl, eps_interp, h_nm, r_nm, stop):
-#     k0 = 2*np.pi/wl*1e9
-#     h=h_nm*1e-9
-#     r=r_nm*1e-9
-#     j2 = lambda x: 2*j1(x)/x - j0(x)
-#     rs = lambda kr : frenel.reflection_coeff(wl, eps_interp, kr)[2]
-#     kz = lambda kr: k0*sqrt(1 - kr**2)
-#     exp_fac = lambda kr: np.exp(1j*kz(kr)*h)
-
-#     int_rotGE_xx = quad( lambda kr: exp_fac(kr)* kr*k0*rs(kr) * j2(kr*r*k0) , 0, stop, complex_func=True)[0]
-#     int_rotGE_xy1 = quad( lambda kr: exp_fac(kr)* rs(kr) * j1(kr*r*k0) , 0, stop, complex_func=True)[0]
-#     int_rotGE_xy2 = quad( lambda kr: exp_fac(kr)*kr*k0*rs(kr)*j0(kr*r*k0)  , 0, stop, complex_func=True)[0]
-#     int_rotGE_zx = quad( lambda kr: exp_fac(kr)*(kr*k0)**2*rs(kr)*j1(kr*r*k0)/kz(kr) , 0, stop, complex_func=True)[0]
-
-#     return int_rotGE_xx, int_rotGE_xy1, int_rotGE_xy2, int_rotGE_zx
-
-# def get_rotGEs(wl, eps_interp, z0_nm, r_nm, phi, z_nm, stop):
-#     h_nm = z_nm+z0_nm
-#     r = r_nm*1e-9
-#     k0 = 2*np.pi/wl*1e9
-#     int_rotGE_xx, int_rotGE_xy1, int_rotGE_xy2, int_rotGE_zx = get_rotGEs_int(wl, eps_interp, h_nm, r_nm, stop)
-    
-#     return None
-    
