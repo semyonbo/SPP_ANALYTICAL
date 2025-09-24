@@ -14,9 +14,14 @@ Q_ = ureg.Quantity
 pint.set_application_registry(ureg)
 ureg.setup_matplotlib(True)
 
+@dataclass
+class Grid:
+    def generate_points(self) -> np.ndarray:
+        return NotImplementedError
+
 
 @dataclass
-class CylindricalGrid:
+class CylindricalGrid(Grid):
     r: Q_
     phi: Q_
     z: Q_
@@ -29,6 +34,28 @@ class CylindricalGrid:
         rr, pp, zz = np.meshgrid(r_vals, phi_vals, z_vals, indexing='ij')
         points = np.stack([rr.ravel(), pp.ravel(), zz.ravel()], axis=1)
         return points
+    
+@dataclass 
+class SphericalGrid(Grid):
+    r: Q_
+    theta: Q_
+    phi: Q_
+    
+    def translate_to_cylindrical(self) -> np.ndarray:
+        r_vals = self.r.to('nm').magnitude
+        theta_vals = self.theta.to('rad').magnitude
+        phi_vals = self.phi.to('rad').magnitude
+        
+        rr, tt, pp = np.meshgrid(r_vals, theta_vals, phi_vals, indexing='ij')
+        r_cyl = rr * np.sin(tt)
+        z = rr * np.cos(tt)
+
+        points = np.stack([r_cyl.ravel(), pp.ravel(), z.ravel()], axis=1)
+        return points
+
+    def generate_points(self) -> np.ndarray:
+        """Совместимый интерфейс: возвращает цилиндрические точки (r,phi,z)."""
+        return self.translate_to_cylindrical()
     
 
 class SimulationConfig:
@@ -152,8 +179,10 @@ class OpticalForceResult:
     Fz: np.ndarray
     Fx0: np.ndarray
     Fy0: np.ndarray
+    Fz0: np.ndarray
     Fxspp: np.ndarray
     Fyspp: np.ndarray
+    Fzspp: np.ndarray
 
     def as_dict(self) -> dict:
         N = ureg.newton
@@ -196,7 +225,10 @@ class OpticalForceResult:
             'Fysppe1': Q_(self.Fyspp[2], N),
             'Fysppe2': Q_(self.Fyspp[3], N),
             'Fysppm1': Q_(self.Fyspp[5], N),
-            'Fysppm2': Q_(self.Fyspp[6], N)
+            'Fysppm2': Q_(self.Fyspp[6], N),
+            
+            'Fzspp': Q_(self.Fzspp[0], N)
+            
         }
 
     def __repr__(self):
@@ -270,7 +302,7 @@ class OpticalForceCalculator:
                              full_output=True,
                              stop_dipoles=self.config.STOP)
         
-        fx0, fy0, _ = force.F(wl=self.config.wl.to('nm').magnitude,
+        fx0, fy0, fz0 = force.F(wl=self.config.wl.to('nm').magnitude,
                              eps_Au=self.config.eps_substrate,
                              point=self.config.point0(),
                              R=self.config.R.to('nm').magnitude,
@@ -283,15 +315,15 @@ class OpticalForceCalculator:
                              full_output=True,
                              stop_dipoles=self.config.STOP)
         
-        fxspp, fyspp = fx-fx0, fy-fy0
+        fxspp, fyspp, fzspp = fx-fx0, fy-fy0, fz-fz0
 
-        return OpticalForceResult(Fx=fx, Fy=fy, Fz=fz, Fx0 = fx0, Fy0 = fy0, Fxspp=fxspp, Fyspp=fyspp)
+        return OpticalForceResult(Fx=fx, Fy=fy, Fz=fz, Fx0 = fx0, Fy0 = fy0, Fz0 = fz0, Fxspp=fxspp, Fyspp=fyspp, Fzspp = fzspp )
     
 class FieldsCalculator:
     def __init__(self, config: SimulationConfig):
         self.config = config
 
-    def compute(self, grid: CylindricalGrid, field_type=None) -> FieldResult:
+    def compute(self, grid: Grid, field_type=None) -> FieldResult:
 
         points = grid.generate_points()
         results = []
@@ -338,13 +370,15 @@ class FieldsCalculator:
         return FieldResult(df)
     
 class DiagramCalculator:
-    def __init__(self, config: SimulationConfig, field_type='sub'):
+    def __init__(self, config: SimulationConfig, grid=None):
         self.config = config
-        self.field_type = field_type
-        self.grid = CylindricalGrid(self.config.wl*20, 
+        if grid == None:
+            self.grid = CylindricalGrid(self.config.wl*20, 
                                     np.linspace(0,2*np.pi,300)*ureg.rad,
                                     np.array([0])*ureg.nm)
-    
+        else:
+            self.grid=grid
+        
     def compute(self):
         FarField = FieldsCalculator(self.config).compute(self.grid)
         Hphi_abs2 = FarField.df['Hphi_abs2'].apply(lambda x: x.magnitude)
@@ -364,7 +398,9 @@ class SweepRunner:
         compute_diagram: bool = True,
         compute_force: bool = False,
         compute_fields: bool = False,
-        grid: CylindricalGrid = None,
+        field_grid: Grid = None,
+        diagram_field: Grid = None,
+        
     ):
         self.base_config = base_config
         self.param = sweep_param
@@ -373,7 +409,8 @@ class SweepRunner:
         self.compute_diagram = compute_diagram
         self.compute_force = compute_force
         self.compute_fields = compute_fields
-        self.grid = grid
+        self.field_grid = field_grid
+        self.diagram_field = diagram_field
 
         if self.compute_fields and self.grid is None:
             raise ValueError("Для вычисления полей необходимо передать `grid`.")
@@ -392,7 +429,7 @@ class SweepRunner:
                 row.update(dip_res.as_dict())
                 
             if self.compute_diagram:
-                diag_res = DiagramCalculator(self.base_config).compute()
+                diag_res = DiagramCalculator(self.base_config, self.diagram_field).compute()
                 df_diag = diag_res.as_dict()
                 df_diag[self.param] = val
                 diagrams_records.append(df_diag)
@@ -402,7 +439,7 @@ class SweepRunner:
                 row.update(force_result.as_dict())
 
             if self.compute_fields:
-                field_result = FieldsCalculator(self.base_config).compute(self.grid)
+                field_result = FieldsCalculator(self.base_config).compute(self.field_grid)
                 fields_results[val] = field_result
 
             summary_results.append(row)
