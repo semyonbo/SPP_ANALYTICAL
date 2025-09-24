@@ -185,6 +185,6 @@ def G0(wl,z0, r, phi, z):
         [-Ry, Rx,   0]
     ], dtype=complex)
     
-    rotG0 = k**2 * exp_fac/(4*pi*Rabs) * RxI/Rabs * ( 1j - 1/(k*Rabs))/nm_to_m**2
+    rotG0 = k * exp_fac/(4*pi*Rabs) * RxI/Rabs * ( 1j - 1/(k*Rabs))/nm_to_m**2
     
     return G0, rotG0

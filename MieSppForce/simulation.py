@@ -59,7 +59,7 @@ class SphericalGrid(Grid):
     
 
 class SimulationConfig:
-    def __init__(self, wl, R, dist, angle, a_angle, phase, substrate='Au', particle='Si', STOP=35):
+    def __init__(self, wl, R, dist, angle, a_angle, phase, substrate='Au', particle='Si', STOP=35, amplitude=1):
         self.wl = wl
         self.R = R
         self.dist = dist
@@ -69,7 +69,7 @@ class SimulationConfig:
         self.substrate = substrate
         self.particle = particle
         self.STOP = STOP
-        self.amplitude = 1.0
+        self.amplitude = amplitude
         self.eps_particle = frenel.get_interpolate(particle)
         
         
@@ -290,7 +290,7 @@ class OpticalForceCalculator:
                              R=self.config.R.to('nm').magnitude,
                              eps_si=self.config.eps_particle,
                              alpha=self.config.angle,
-                             amplitude=1,
+                             amplitude=self.config.amplitude,
                              phase=self.config.phase,
                              a_angle=self.config.a_angle,
                              stop=self.config.STOP,
@@ -303,7 +303,7 @@ class OpticalForceCalculator:
                              R=self.config.R.to('nm').magnitude,
                              eps_si=self.config.eps_particle,
                              alpha=self.config.angle,
-                             amplitude=1,
+                             amplitude=self.config.amplitude,
                              phase=self.config.phase,
                              a_angle=self.config.a_angle,
                              stop=1,
@@ -337,7 +337,8 @@ class FieldsCalculator:
                 phi=phi_val,
                 z=z_val,
                 z0=(self.config.dist + self.config.R).to('nm').magnitude,
-                field_type=field_type
+                field_type=field_type,
+                amplitude=self.config.amplitude
             )
             
             
@@ -373,15 +374,53 @@ class DiagramCalculator:
                                     np.array([0])*ureg.nm)
         else:
             self.grid=grid
+            
+    def radiation_pattern(grid: SphericalGrid , FarField : FieldResult):
+        Ex = FarField.df['Ex'].apply(lambda x: x.magnitude).to_numpy()
+        Ey = FarField.df['Ey'].apply(lambda x: x.magnitude).to_numpy()
+        Ez = FarField.df['Ez'].apply(lambda x: x.magnitude).to_numpy()
+        Hx = FarField.df['Hx'].apply(lambda x: x.magnitude).to_numpy()
+        Hy = FarField.df['Hy'].apply(lambda x: x.magnitude).to_numpy()
+        Hz = FarField.df['Hz'].apply(lambda x: x.magnitude).to_numpy()
         
-    def compute(self):
-        FarField = FieldsCalculator(self.config).compute(self.grid, 'sub')
-        Hphi_abs2 = FarField.df['Hphi_abs2'].apply(lambda x: x.magnitude)
-        phi = FarField.df['phi'].apply(lambda x: x.magnitude)
-        integr = trapezoid(Hphi_abs2, phi)
-        D = Hphi_abs2.apply(lambda x: 2*np.pi*x/integr)
-        return DiagramResult(phi, D)
-    
+        Sx = 0.5*np.real(Ey*Hz.conj() - Ez*Hy.conj())
+        Sy = 0.5*np.real(Ez*Hx.conj() - Ex*Hz.conj())
+        Sz = 0.5*np.real(Ex*Hy.conj() - Ey*Hx.conj())
+        
+        
+        
+        phi = grid.phi.magnitude
+        theta = grid.theta.magnitude
+        
+        I  = Sx * np.sin(theta) * np.cos(phi) + Sy * np.sin(theta) * np.sin(phi) + Sz * np.cos(theta)
+        
+        #I = np.sqrt(np.abs(Ex)**2 + np.abs(Ey)**2 + np.abs(Ez)**2)
+        
+        return I, theta, phi
+        
+        
+        
+    def compute(self, field_type=None):
+        
+        if type(self.grid) == CylindricalGrid:
+        
+            FarField = FieldsCalculator(self.config).compute(self.grid, 'spp')
+            Hphi_abs2 = FarField.df['Hphi_abs2'].apply(lambda x: x.magnitude)
+            phi = FarField.df['phi'].apply(lambda x: x.magnitude)
+            integr = trapezoid(Hphi_abs2, phi)
+            D = Hphi_abs2.apply(lambda x: 2*np.pi*x/integr)
+            return DiagramResult(phi, D)
+
+        elif type(self.grid) == SphericalGrid:
+            FarField = FieldsCalculator(self.config).compute(self.grid, field_type=field_type)
+            
+            I, theta, phi = DiagramCalculator.radiation_pattern(self.grid, FarField)            
+
+            return DiagramResult(theta, I)
+        
+        else:
+            return NotImplementedError    
+        
 
 class SweepRunner:
     def __init__(
@@ -393,7 +432,8 @@ class SweepRunner:
         compute_diagram: bool = True,
         compute_force: bool = False,
         compute_fields: bool = False,
-        grid: Grid = None
+        grid: Grid = None,
+        field_type: str = None,
     ):
         self.base_config = base_config
         self.param = sweep_param
@@ -403,6 +443,7 @@ class SweepRunner:
         self.compute_force = compute_force
         self.compute_fields = compute_fields
         self.grid = grid
+        self.field_type = field_type
 
         if self.compute_fields and self.grid is None:
             raise ValueError("Для вычисления полей необходимо передать `grid`.")
@@ -421,7 +462,7 @@ class SweepRunner:
                 row.update(dip_res.as_dict())
                 
             if self.compute_diagram:
-                diag_res = DiagramCalculator(self.base_config).compute()
+                diag_res = DiagramCalculator(self.base_config).compute(field_type=self.field_type)
                 df_diag = diag_res.as_dict()
                 df_diag[self.param] = val
                 diagrams_records.append(df_diag)
@@ -431,7 +472,7 @@ class SweepRunner:
                 row.update(force_result.as_dict())
 
             if self.compute_fields:
-                field_result = FieldsCalculator(self.base_config).compute(self.grid)
+                field_result = FieldsCalculator(self.base_config).compute(self.grid, field_type=self.field_type)
                 fields_results[val] = field_result
 
             summary_results.append(row)
@@ -440,91 +481,3 @@ class SweepRunner:
         df_diagrams = pd.concat(diagrams_records, ignore_index=True) if self.compute_diagram else None
 
         return df_summary, df_diagrams, fields_results if self.compute_fields else None
-
-class Visualizer:
-    @staticmethod
-    def _extract_label_with_units(series: pd.Series, label: str) -> str:
-        if isinstance(series.iloc[0], ureg.Quantity):
-            unit = series.iloc[0].units
-            return f"${label}$ [{unit:~}]"
-        return f"${label}$"
-
-    @staticmethod
-    def _magnitude(series: pd.Series) -> np.ndarray:
-        if hasattr(series.iloc[0], 'magnitude'):
-            return series.apply(lambda x: x.magnitude), f" [{series.iloc[0].units:~L}]"
-        else:
-            return series, ""
-
-    @staticmethod
-    def plot_component(df: pd.DataFrame, sweep_param: str, component: str):
-        import matplotlib.pyplot as plt
-        y_vals, unit_y = Visualizer._magnitude(df[component])
-        x_vals, unit_x = Visualizer._magnitude(df[sweep_param])
-
-        plt.figure(figsize=(8, 5))
-
-        if np.iscomplexobj(y_vals.iloc[0]):
-            plt.plot(x_vals, y_vals.apply(np.real), label=f'{component} (Re)')
-            plt.plot(x_vals, y_vals.apply(np.imag), '--', label=f'{component} (Im)')
-        else:
-            plt.plot(x_vals, y_vals, label=component)
-
-        plt.xlabel(f"{sweep_param} ${unit_x}$")
-        plt.ylabel(f"{component} ${unit_y}$")
-        plt.legend()
-        plt.grid(True)
-        plt.tight_layout()
-        plt.show()
-
-    @staticmethod
-    def list_components(df: pd.DataFrame, include_real_only=False):
-        if include_real_only:
-            return [col for col in df.columns if not np.iscomplexobj(df[col])]
-        return list(df.columns)
-    
-
-    from typing import Union
-    @staticmethod
-    def plot_components(df: pd.DataFrame, sweep_param: str, components: Union[str, list]):
-        import matplotlib.pyplot as plt
-
-        if isinstance(components, str):
-            components = components.split()
-
-        x_vals, unit_x = Visualizer._magnitude(df[sweep_param])
-
-        y_unit = None
-        plt.figure(figsize=(10, 6))
-
-        for comp in components:
-            if comp not in df.columns:
-                raise ValueError(f"Компонента '{comp}' отсутствует в DataFrame.")
-
-            series = df[comp]
-            
-            y_vals, unit = Visualizer._magnitude(series)
-
-            if y_unit is None:
-                y_unit = unit
-            elif unit != y_unit:
-                raise ValueError(f"Несовместимые размерности: '{comp}' имеет {unit}, ожидалось {y_unit}.")
-
-            if np.iscomplexobj(y_vals.iloc[0]):
-                plt.plot(x_vals, y_vals.apply(np.real), label=f'{comp} (Re)')
-                plt.plot(x_vals, y_vals.apply(np.imag), '--', label=f'{comp} (Im)')
-            else:
-                plt.plot(x_vals, y_vals, label=comp)
-
-        plt.xlabel(f"{sweep_param} ${unit_x}$")
-        plt.ylabel(f"Значение ${y_unit}$")
-        plt.legend()
-        plt.grid(True)
-        plt.tight_layout()
-        plt.show()
-
-    @staticmethod
-    def list_components(df: pd.DataFrame, include_real_only=False):
-        if include_real_only:
-            return [col for col in df.columns if not np.iscomplexobj(df[col])]
-        return list(df.columns)

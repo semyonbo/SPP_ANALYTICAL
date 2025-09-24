@@ -6,14 +6,13 @@ eps0_const = 1/(4*np.pi*c_const**2)*1e7
 mu0_const = 4*np.pi * 1e-7
 
 
-def get_field(wl, eps_interp, alpha, phase, a_angle, stop, eps_particle, R,   r, phi, z, z0, field_type = None ):
+def get_field(wl, eps_interp, alpha, phase, a_angle, stop, eps_particle, R,   r, phi, z, z0, field_type = None, amplitude=1 ):
     
     assert z>= 0, "z should be >=0"
     assert z0>0, "z0 should be >0"
     
     k = 2*np.pi/wl*1e9
     omega = k*c_const
-    amplitude = 1  
     
     GEres =np.zeros((3,3), dtype=complex)
     rotGHres = np.zeros_like(GEres)
@@ -24,13 +23,20 @@ def get_field(wl, eps_interp, alpha, phase, a_angle, stop, eps_particle, R,   r,
 
     G0, rotG0 = green_func_v2.G0(wl, z0, r, phi, z)
     
-    GE, rotGH, GH, rotGE = green_func_v2.getG(wl, eps_interp, z+z0, r, phi)
+    GErp, rotGHrs, GHrs, rotGErp = green_func_v2.getG(wl, eps_interp, z+z0, r, phi, 'p')
+    
+    GErs, rotGHrp, GHrp, rotGErs = green_func_v2.getG(wl, eps_interp, z+z0, r, phi, 's')
         
-
-    if field_type == 'sub':
-        GEres, rotGHres, GHres, rotGEres = GE, rotGH, GH, rotGE
+    if field_type == 'spp':
+        GEres, rotGHres, GHres, rotGEres = GErp, rotGHrp, GHrp, rotGErp
+    elif field_type == 'sc':
+        GEres, rotGHres, GHres, rotGEres = GErs, rotGHrs, GHrs, rotGErs
+    elif field_type =='air':
+        GEres, rotGHres, GHres, rotGEres = G0, rotG0, G0, rotG0
+    elif field_type == 'reg':
+        GEres, rotGHres, GHres, rotGEres = GErs+G0, rotGHrs+rotG0, G0+GHrs, rotG0+rotGErs
     else:
-        GEres, rotGHres, GHres, rotGEres = GE+G0, rotGH+rotG0, GH+G0, rotGE+rotG0
+        GEres, rotGHres, GHres, rotGEres = GErs+GErp+G0, rotGHrs+rotGHrp+rotG0, GHrs+GHrp+G0, rotGErs+rotGErp+rotG0
 
         
 
