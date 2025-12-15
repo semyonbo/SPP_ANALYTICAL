@@ -6,7 +6,7 @@ eps0_const = 1/(4*np.pi*c_const**2)*1e7
 mu0_const = 4*np.pi * 1e-7
 
 
-def get_field(wl, eps_interp, alpha, phase, a_angle, stop, eps_particle, R,   r, phi, z, z0, field_type = None, amplitude=1 ):
+def get_field(wl, eps_interp, alpha, phase, a_angle, eps_particle, R,   r, phi, z, z0, field_type = None, amplitude=1, initial_field_type=None):
     
     assert z>= 0, "z should be >=0"
     assert z0>0, "z0 should be >0"
@@ -19,11 +19,11 @@ def get_field(wl, eps_interp, alpha, phase, a_angle, stop, eps_particle, R,   r,
     GHres = np.zeros_like(GEres)
     rotGEres = np.zeros_like(GEres)
     
-    p,m = dipoles.calc_dipoles_v2(wl, eps_interp, [0,0,z0], R, eps_particle, alpha, amplitude, phase, a_angle, stop)
+    p,m = dipoles.calc_dipoles_v2(wl, eps_interp, [0,0,z0], R, eps_particle, alpha, amplitude, phase, a_angle, initial_field_type=initial_field_type)
 
     G0, rotG0 = green_func_v2.G0(wl, z0, r, phi, z)
     GE_spp, rotGH_spp, GH_spp, rotGE_spp = green_func_v2.getG(wl, eps_interp, z+z0, r, phi, 'spp')
-    GE_reg, rotGH_reg, GH_reg, rotGE_reg = green_func_v2.getG(wl, eps_interp, z+z0, r, phi, 'regular')
+    GE_reg, rotGH_reg, GH_reg, rotGE_reg = green_func_v2.getG(wl, eps_interp, z+z0, r, phi, 'reg')
     # GE, rotGH, GH, rotGE = green_func_v2.getG(wl, eps_interp, z+z0, r, phi)
     
     if field_type == 'spp':

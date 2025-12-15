@@ -3,15 +3,13 @@ import numpy as np
 import pandas as pd
 import pint
 from MieSppForce import frenel, dipoles, force, fields
-import matplotlib.pyplot as plt
 from dataclasses import dataclass
-from typing import Union
 import numpy as np
 from scipy.integrate import trapezoid
 from tqdm_joblib import tqdm_joblib
 from joblib import Parallel, delayed
-import logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
+import warnings
+from scipy.integrate import IntegrationWarning
 
 
 ureg = pint.UnitRegistry()
@@ -63,20 +61,41 @@ class SphericalGrid(Grid):
     
 
 class SimulationConfig:
-    def __init__(self, wl, R, dist, angle, a_angle, phase, substrate='Au', particle='Si', STOP=35, amplitude=1):
+    def __init__(self, wl, R, dist, angle, 
+                 psi=None, chi=None, beta=None, delta=None,
+                 substrate='Au', particle='Si', stop=45 ,amplitude=1,show_warnings=True, initial_field_type='plane_wave'):
         self.wl = wl
         self.R = R
         self.dist = dist
         self.angle = angle
-        self.a_angle = a_angle
-        self.phase = phase
+        
+        self._psi = psi
+        self._chi = chi
+        
+        # Determine beta and delta (internal storage)
+        if psi is not None and chi is not None:
+            self.polaris_param_type = 'ellipse'
+            self.a_angle, self.phase = beta_delta_from_psichi(psi, chi)
+        elif beta is not None and delta is not None:
+            self.polaris_param_type = 'classic'
+            self.a_angle = beta
+            self.phase = delta
+        else:
+            raise ValueError("Polarization parameters not specified. Use (psi, chi) or (beta, delta).")
+        
         self.substrate = substrate
         self.particle = particle
-        self.STOP = STOP
         self.amplitude = amplitude
         self.eps_particle = frenel.get_interpolate(particle)
+        self.STOP=stop
+        self.show_warnings = show_warnings 
+        self.initial_field_type = initial_field_type
         
-        
+        if not self.show_warnings:
+            warnings.filterwarnings("ignore", category=IntegrationWarning)
+        else:
+            warnings.filterwarnings("default", category=IntegrationWarning)
+            
         if substrate == 'Air':
             self.eps_substrate = lambda wl: 1 + 0j
         else:
@@ -87,6 +106,26 @@ class SimulationConfig:
             ureg.farad / ureg.meter
         self.mu0_const = 4*np.pi * 1e-7 * ureg.newton / \
             (ureg.ampere**2)
+
+    @property
+    def psi(self):
+        return self._psi
+    
+    @psi.setter
+    def psi(self, value):
+        self._psi = value
+        if self._chi is not None:
+            self.a_angle, self.phase = beta_delta_from_psichi(self._psi, self._chi)
+
+    @property
+    def chi(self):
+        return self._chi
+    
+    @chi.setter
+    def chi(self, value):
+        self._chi = value
+        if self._psi is not None:
+            self.a_angle, self.phase = beta_delta_from_psichi(self._psi, self._chi)
 
     def k0(self):
         return (2 * np.pi / self.wl)
@@ -264,6 +303,25 @@ class FieldResult:
 
     def __repr__(self):
         return f"FieldResult: {self.df.shape[0]} points\nColumns: {list(self.df.columns)}"
+    
+    
+def beta_delta_from_psichi(psi, chi, tol=1e-12):
+    if not (0.0 <= psi <= np.pi):
+        raise ValueError("psi вне диапазона [0, π]")
+    if not (-np.pi/4 <= chi <= np.pi/4):
+        raise ValueError("chi вне диапазона [-π/4, π/4]")
+
+    cos2beta = np.clip(np.cos(2*psi) * np.cos(2*chi), -1.0, 1.0)
+    beta = 0.5 * np.arccos(cos2beta)
+
+    sin2beta = np.sqrt(max(0.0, 1.0 - cos2beta**2))
+    if sin2beta < tol:  # линейная поляризация
+        return beta, 0.0
+
+    sin_delta = np.clip(np.sin(2*chi) / sin2beta, -1.0, 1.0)
+    cos_delta = np.clip(np.tan(2*psi) * cos2beta / sin2beta, -1.0, 1.0)
+    delta = (np.arctan2(sin_delta, cos_delta)) % (2*np.pi)
+    return beta, delta
 
 
 class DipoleCalculator:
@@ -280,7 +338,7 @@ class DipoleCalculator:
                                        amplitude = self.config.amplitude, 
                                        phase = self.config.phase, 
                                        a_angle = self.config.a_angle, 
-                                       stop = self.config.STOP)
+                                       initial_field_type=self.config.initial_field_type)
 
         p_vec = p[:, 0]
         m_vec = m[:, 0]
@@ -304,7 +362,7 @@ class OpticalForceCalculator:
                              a_angle=self.config.a_angle,
                              stop=self.config.STOP,
                              full_output=True,
-                             stop_dipoles=self.config.STOP)
+                             initial_field_type=self.config.initial_field_type)
         
         fx0, fy0, fz0 = force.F(wl=self.config.wl.to('nm').magnitude,
                              eps_Au=self.config.eps_substrate,
@@ -317,7 +375,7 @@ class OpticalForceCalculator:
                              a_angle=self.config.a_angle,
                              stop=1,
                              full_output=True,
-                             stop_dipoles=self.config.STOP)
+                             initial_field_type=self.config.initial_field_type)
         
         fxspp, fyspp, fzspp = fx-fx0, fy-fy0, fz-fz0
 
@@ -379,19 +437,23 @@ class FieldsCalculator:
     #     return FieldResult(df)
     
     
-    def compute(self, grid: Grid, field_type=None) -> FieldResult:
+    def compute(self, grid: Grid, field_type=None, internal_compute = False) -> FieldResult:
 
         points = grid.generate_points()
         results = []
+        
+        if internal_compute:
+            smart_range = lambda x: x
+        else:
+            smart_range = tqdm
 
-        for r_val, phi_val, z_val in tqdm(points):
+        for r_val, phi_val, z_val in smart_range(points):
             E, H = fields.get_field(
                 wl=self.config.wl.to('nm').magnitude,
                 eps_interp=self.config.eps_substrate,
                 alpha=self.config.angle,
                 phase=self.config.phase,
                 a_angle=self.config.a_angle,
-                stop=self.config.STOP,
                 eps_particle=self.config.eps_particle,
                 R=self.config.R.to('nm').magnitude,
                 r=r_val,
@@ -399,7 +461,8 @@ class FieldsCalculator:
                 z=z_val,
                 z0=(self.config.dist + self.config.R).to('nm').magnitude,
                 field_type=field_type,
-                amplitude=self.config.amplitude
+                amplitude=self.config.amplitude,
+                initial_field_type=self.config.initial_field_type
             )
             
             
@@ -427,8 +490,9 @@ class FieldsCalculator:
         return FieldResult(df)
     
 class DiagramCalculator:
-    def __init__(self, config: SimulationConfig, grid=None):
+    def __init__(self, config: SimulationConfig, grid=None, normalize='directivity'):
         self.config = config
+        self.normalize = normalize
         if grid == None:
             self.grid = CylindricalGrid(self.config.wl*10, 
                                     np.linspace(0,2*np.pi,300)*ureg.rad,
@@ -436,7 +500,7 @@ class DiagramCalculator:
         else:
             self.grid=grid
             
-    def radiation_pattern(grid: SphericalGrid , FarField : FieldResult):
+    def radiation_pattern(grid: Grid , FarField : FieldResult):
         Ex = FarField.df['Ex'].apply(lambda x: x.magnitude).to_numpy()
         Ey = FarField.df['Ey'].apply(lambda x: x.magnitude).to_numpy()
         Ez = FarField.df['Ez'].apply(lambda x: x.magnitude).to_numpy()
@@ -448,37 +512,50 @@ class DiagramCalculator:
         Sy = 0.5*np.real(Ez*Hx.conj() - Ex*Hz.conj())
         Sz = 0.5*np.real(Ex*Hy.conj() - Ey*Hx.conj())
         
-        
-        
-        phi = grid.phi.magnitude
-        theta = grid.theta.magnitude
-        
-        I  = Sx * np.sin(theta) * np.cos(phi) + Sy * np.sin(theta) * np.sin(phi) + Sz * np.cos(theta)
-        
-        #I = np.sqrt(np.abs(Ex)**2 + np.abs(Ey)**2 + np.abs(Ez)**2)
-        
+        if type(grid) == SphericalGrid:
+            phi = grid.phi.magnitude
+            theta = grid.theta.magnitude
+            I  = Sx * np.sin(theta) * np.cos(phi) + Sy * np.sin(theta) * np.sin(phi) + Sz * np.cos(theta)
+        elif type(grid) == CylindricalGrid:
+            theta = np.pi/2
+            phi = grid.phi.magnitude
+            I = Sx*np.cos(phi) + Sy*np.sin(phi)
         return I, theta, phi
         
         
         
-    def compute(self, field_type=None):
-        
-        if type(self.grid) == CylindricalGrid:
-        
-            FarField = FieldsCalculator(self.config).compute(self.grid, 'spp')
-            Hphi_abs2 = FarField.df['Hphi_abs2'].apply(lambda x: x.magnitude)
-            phi = FarField.df['phi'].apply(lambda x: x.magnitude)
-            integr = trapezoid(Hphi_abs2, phi)
-            D = Hphi_abs2.apply(lambda x: 2*np.pi*x/integr)
-            return DiagramResult(phi, D)
+    def compute(self, field_type=None, internal_compute = False):
+    
+        # if (type(self.grid) == CylindricalGrid and (field_type=='spp')):
+        #     FarField = FieldsCalculator(self.config).compute(self.grid, 'spp', internal_compute=internal_compute)
+        #     Hphi_abs2 = FarField.df['Hphi_abs2'].apply(lambda x: x.magnitude)
+        #     phi = FarField.df['phi'].apply(lambda x: x.magnitude)
+        #     if self.normalize == 'directivity':
+        #         integr = trapezoid(Hphi_abs2, phi)
+        #         pattern = Hphi_abs2.apply(lambda x: 2*np.pi*x/integr)
+        #     elif self.normalize == None:
+        #         pattern = Hphi_abs2
+        #     return DiagramResult(phi, pattern)
 
-        elif type(self.grid) == SphericalGrid:
-            FarField = FieldsCalculator(self.config).compute(self.grid, field_type=field_type)
-            
-            I, theta, phi = DiagramCalculator.radiation_pattern(self.grid, FarField)            
-
-            return DiagramResult(theta, I)
+        if type(self.grid) == SphericalGrid:
+            FarField = FieldsCalculator(self.config).compute(self.grid, field_type=field_type, internal_compute=internal_compute)
+            I, theta, phi = DiagramCalculator.radiation_pattern(self.grid, FarField)
+            if self.normalize == 'directivity':
+                integr = trapezoid(I , theta)
+                pattern = 2*np.pi*I/integr
+            elif self.normalize == None:
+                pattern = I          
+            return DiagramResult(theta, pattern)
         
+        elif (type(self.grid) == CylindricalGrid):
+            FarField = FieldsCalculator(self.config).compute(self.grid, field_type=field_type, internal_compute=internal_compute)
+            I, theta, phi = DiagramCalculator.radiation_pattern(self.grid, FarField)
+            if self.normalize == 'directivity':
+                integr = trapezoid(I, phi)
+                pattern = 2*np.pi*I/integr
+            elif self.normalize == None:
+                pattern = I   
+            return DiagramResult(phi, pattern)
         else:
             return NotImplementedError    
         
@@ -495,6 +572,7 @@ class SweepRunner:
         compute_fields: bool = False,
         grid: Grid = None,
         field_type: str = None,
+        diagram_normalize: str = 'directivity'
     ):
         self.base_config = base_config
         self.param = sweep_param
@@ -505,6 +583,7 @@ class SweepRunner:
         self.compute_fields = compute_fields
         self.grid = grid
         self.field_type = field_type
+        self.diagram_normalize = diagram_normalize
 
         if self.compute_fields and self.grid is None:
             raise ValueError("Для вычисления полей необходимо передать `grid`.")
@@ -543,7 +622,17 @@ class SweepRunner:
 
     #     return df_summary, df_diagrams, fields_results if self.compute_fields else None
 
+
     def _single_run(self, val):
+        if not self.base_config.show_warnings:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=IntegrationWarning)
+                return self._do_single_run(val)
+        else:
+            return self._do_single_run(val)
+        
+        
+    def _do_single_run(self, val):
         """Один шаг sweep-а"""
         setattr(self.base_config, self.param, val)
         row = {self.param: val}
@@ -555,7 +644,7 @@ class SweepRunner:
             row.update(dip_res.as_dict())
 
         if self.compute_diagram:
-            diag_res = DiagramCalculator(self.base_config).compute(field_type=self.field_type)
+            diag_res = DiagramCalculator(self.base_config, grid=self.grid, normalize=self.diagram_normalize).compute(field_type=self.field_type, internal_compute=True)
             df_diag = diag_res.as_dict()
             df_diag[self.param] = val
             diagrams_records.append(df_diag)
@@ -565,27 +654,197 @@ class SweepRunner:
             row.update(force_result.as_dict())
 
         if self.compute_fields:
-            field_result = FieldsCalculator(self.base_config).compute(self.grid, field_type=self.field_type)
+            field_result = FieldsCalculator(self.base_config).compute(self.grid, field_type=self.field_type, internal_compute=True)
             fields_results[val] = field_result
 
-        logging.info(f"Done {self.param}={val}")
+        # logging.info(f"Done {self.param}={val}")
         return row, diagrams_records, fields_results
 
-    def run(self, n_jobs=-1):
-        """Запуск sweep-а параллельно"""
-        summary_results, diagrams_records, fields_results = [], [], {}
 
-        with tqdm_joblib(tqdm(total=len(self.values), desc=f"Sweeping '{self.param}'", unit="step")):
-            results = Parallel(n_jobs=n_jobs)(
+
+    def run_par(self, n_jobs=-1):
+        with tqdm_joblib(tqdm(total=len(self.values))):
+            results = Parallel(n_jobs=n_jobs, backend="loky")(
                 delayed(self._single_run)(val) for val in self.values
             )
 
-        # Собираем всё в датафреймы
+        return results
+
+    def run(self, n_jobs=-1):
+        summary_results, diagrams_records, fields_results = [], [], {}
+        results = self.run_par(n_jobs=n_jobs)
+            
         for row, diag, field in results:
             summary_results.append(row)
             diagrams_records.extend(diag)
             fields_results.update(field)
 
         df_summary = pd.DataFrame(summary_results)
-        df_diagrams = pd.concat(diagrams_records, ignore_index=True) if self.compute_diagram else None
+        df_diagrams = (
+            pd.concat(diagrams_records, ignore_index=True)
+            if self.compute_diagram else None
+        )
         return df_summary, df_diagrams, fields_results if self.compute_fields else None
+
+
+class SweepRunner2D:
+    def __init__(
+        self,
+        base_config: SimulationConfig,
+        primary_param: str,
+        primary_values,
+        secondary_param: str,
+        secondary_values,
+        compute_dipoles: bool = True,
+        compute_diagram: bool = True,
+        compute_force: bool = False,
+        compute_fields: bool = False,
+        grid: Grid = None,
+        field_type: str = None,
+        diagram_normalize: str = 'directivity',
+        parallel_param: str = 'primary',
+        enable_parallel: bool = True,
+    ):
+        if primary_param == secondary_param:
+            raise ValueError("primary_param and secondary_param must be different")
+
+        self.base_config = base_config
+        self.primary_param = primary_param
+        self.secondary_param = secondary_param
+        self.primary_values = list(primary_values)
+        self.secondary_values = list(secondary_values)
+        self.compute_dipoles = compute_dipoles or compute_force
+        self.compute_diagram = compute_diagram
+        self.compute_force = compute_force
+        self.compute_fields = compute_fields
+        self.grid = grid
+        self.field_type = field_type
+        self.diagram_normalize = diagram_normalize
+        self.parallel_param = parallel_param
+        self.enable_parallel = enable_parallel
+
+        if self.compute_fields and self.grid is None:
+            raise ValueError("Для вычисления полей необходимо передать `grid`.")
+
+        if parallel_param not in {None, 'primary', 'secondary'}:
+            raise ValueError("parallel_param must be None, 'primary', or 'secondary'")
+
+    def _run_step(self, assignments, fields_key):
+        effective_assignments = dict(assignments)
+
+        for attr, value in effective_assignments.items():
+            setattr(self.base_config, attr, value)
+
+        row = dict(effective_assignments)
+        diagrams_records = []
+        fields_results = {}
+
+        if self.compute_dipoles:
+            dip_res = DipoleCalculator(self.base_config).compute()
+            row.update(dip_res.as_dict())
+
+        if self.compute_diagram:
+            diag_res = DiagramCalculator(self.base_config, normalize=self.diagram_normalize).compute(field_type=self.field_type, internal_compute=True)
+            df_diag = diag_res.as_dict()
+            for attr, value in effective_assignments.items():
+                df_diag[attr] = value
+            diagrams_records.append(df_diag)
+
+        if self.compute_force:
+            force_result = OpticalForceCalculator(self.base_config).compute()
+            row.update(force_result.as_dict())
+
+        if self.compute_fields:
+            field_result = FieldsCalculator(self.base_config).compute(self.grid, field_type=self.field_type, internal_compute=True)
+            fields_results[fields_key] = field_result
+
+        return row, diagrams_records, fields_results
+
+    def _sequential_run(self, iterable_primary, iterable_secondary):
+        summary_results, diagrams_records, fields_results = [], [], {}
+        for val_primary in tqdm(iterable_primary, desc=f"{self.primary_param} sweep"):
+            for val_secondary in iterable_secondary:
+                assignments = {
+                    self.primary_param: val_primary,
+                    self.secondary_param: val_secondary,
+                }
+                key = (val_primary, val_secondary)
+                if not self.base_config.show_warnings:
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", category=IntegrationWarning)
+                        row, diag, field = self._run_step(assignments, key)
+                else:
+                    row, diag, field = self._run_step(assignments, key)
+                summary_results.append(row)
+                diagrams_records.extend(diag)
+                fields_results.update(field)
+        return summary_results, diagrams_records, fields_results
+
+    def _parallel_worker(self, fixed_value, sweep_over_secondary):
+        summary_results, diagrams_records, fields_results = [], [], {}
+        iterable = self.secondary_values if sweep_over_secondary else self.primary_values
+
+        for varying_value in iterable:
+            if sweep_over_secondary:
+                assignments = {
+                    self.primary_param: fixed_value,
+                    self.secondary_param: varying_value,
+                }
+                key = (fixed_value, varying_value)
+            else:
+                assignments = {
+                    self.primary_param: varying_value,
+                    self.secondary_param: fixed_value,
+                }
+                key = (varying_value, fixed_value)
+
+            if not self.base_config.show_warnings:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", category=IntegrationWarning)
+                    row, diag, field = self._run_step(assignments, key)
+            else:
+                row, diag, field = self._run_step(assignments, key)
+
+            summary_results.append(row)
+            diagrams_records.extend(diag)
+            fields_results.update(field)
+
+        return summary_results, diagrams_records, fields_results
+
+    def run(self, n_jobs=-1):
+        if (
+            not self.enable_parallel
+            or self.parallel_param is None
+            or n_jobs == 1
+        ):
+            summary_results, diagrams_records, fields_results = self._sequential_run(
+                self.primary_values,
+                self.secondary_values,
+            )
+        else:
+            if self.parallel_param == 'primary':
+                tasks = self.primary_values
+                sweep_secondary = True
+            else:
+                tasks = self.secondary_values
+                sweep_secondary = False
+
+            with tqdm_joblib(tqdm(total=len(tasks))):
+                results = Parallel(n_jobs=n_jobs, backend="loky")(
+                    delayed(self._parallel_worker)(val, sweep_secondary)
+                    for val in tasks
+                )
+
+            summary_results, diagrams_records, fields_results = [], [], {}
+            for summary, diagrams, fields in results:
+                summary_results.extend(summary)
+                diagrams_records.extend(diagrams)
+                fields_results.update(fields)
+
+        df_summary = pd.DataFrame(summary_results)
+        df_diagrams = (
+            pd.concat(diagrams_records, ignore_index=True)
+            if self.compute_diagram else None
+        )
+        return df_summary, df_diagrams, fields_results if self.compute_fields else None
+
