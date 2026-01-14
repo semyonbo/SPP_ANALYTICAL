@@ -197,22 +197,30 @@ class DipoleResult:
 @dataclass
 class DiagramResult:
     phi: np.ndarray
+    theta: np.ndarray
     D: np.ndarray
+        
     
     def as_dict(self) -> dict:
+        if len(self.phi) != len(self.D) or len(self.theta) != len(self.D):
+            raise ValueError("Длины phi, theta и D должны совпадать.")
         result = []
         for i in range(len(self.phi)):
             row = {
                 'phi': self.phi[i],
+                'theta': self.theta[i],
                 'D': self.D[i]
             }
             result.append(row)
         return pd.DataFrame(result)
 
     def as_array(self) -> np.ndarray:
-        res = np.zeros((len(self.phi),2))
+        if len(self.phi) != len(self.D) or len(self.theta) != len(self.D):
+            raise ValueError("Длины phi, theta и D должны совпадать.")
+        res = np.zeros((len(self.phi),3))
         res[:,0] = self.phi
-        res[:,1] = self.D
+        res[:,1] = self.theta
+        res[:,2] = self.D
         return res
 
 @dataclass
@@ -500,7 +508,7 @@ class DiagramCalculator:
         else:
             self.grid=grid
             
-    def radiation_pattern(grid: Grid , FarField : FieldResult):
+    def radiation_pattern(FarField : FieldResult):
         Ex = FarField.df['Ex'].apply(lambda x: x.magnitude).to_numpy()
         Ey = FarField.df['Ey'].apply(lambda x: x.magnitude).to_numpy()
         Ez = FarField.df['Ez'].apply(lambda x: x.magnitude).to_numpy()
@@ -512,14 +520,18 @@ class DiagramCalculator:
         Sy = 0.5*np.real(Ez*Hx.conj() - Ex*Hz.conj())
         Sz = 0.5*np.real(Ex*Hy.conj() - Ey*Hx.conj())
         
-        if type(grid) == SphericalGrid:
-            phi = grid.phi.magnitude
-            theta = grid.theta.magnitude
-            I  = Sx * np.sin(theta) * np.cos(phi) + Sy * np.sin(theta) * np.sin(phi) + Sz * np.cos(theta)
-        elif type(grid) == CylindricalGrid:
-            theta = np.pi/2
-            phi = grid.phi.magnitude
-            I = Sx*np.cos(phi) + Sy*np.sin(phi)
+        r = FarField.df['r'].apply(lambda x: x.magnitude).to_numpy()
+        phi = FarField.df['phi'].apply(lambda x: x.magnitude).to_numpy()
+        z = FarField.df['z'].apply(lambda x: x.magnitude).to_numpy()
+        theta = np.arctan2(r, z)
+        # if type(grid) == SphericalGrid:
+        #     phi = grid.phi.magnitude
+        #     theta = grid.theta.magnitude
+        I  = Sx * np.sin(theta) * np.cos(phi) + Sy * np.sin(theta) * np.sin(phi) + Sz * np.cos(theta)
+        # elif type(grid) == CylindricalGrid:
+        #     theta = np.pi/2
+        #     phi = grid.phi.magnitude
+        #     I = Sx*np.cos(phi) + Sy*np.sin(phi)
         return I, theta, phi
         
         
@@ -539,23 +551,23 @@ class DiagramCalculator:
 
         if type(self.grid) == SphericalGrid:
             FarField = FieldsCalculator(self.config).compute(self.grid, field_type=field_type, internal_compute=internal_compute)
-            I, theta, phi = DiagramCalculator.radiation_pattern(self.grid, FarField)
+            I, theta, phi = DiagramCalculator.radiation_pattern(FarField)
             if self.normalize == 'directivity':
                 integr = trapezoid(I , theta)
                 pattern = 2*np.pi*I/integr
             elif self.normalize == None:
                 pattern = I          
-            return DiagramResult(theta, pattern)
+            return DiagramResult(phi, theta, pattern)
         
         elif (type(self.grid) == CylindricalGrid):
             FarField = FieldsCalculator(self.config).compute(self.grid, field_type=field_type, internal_compute=internal_compute)
-            I, theta, phi = DiagramCalculator.radiation_pattern(self.grid, FarField)
+            I, theta, phi = DiagramCalculator.radiation_pattern(FarField)
             if self.normalize == 'directivity':
                 integr = trapezoid(I, phi)
                 pattern = 2*np.pi*I/integr
             elif self.normalize == None:
                 pattern = I   
-            return DiagramResult(phi, pattern)
+            return DiagramResult(phi, theta, pattern)
         else:
             return NotImplementedError    
         

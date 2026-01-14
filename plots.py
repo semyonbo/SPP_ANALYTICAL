@@ -73,7 +73,7 @@ def _(SimulationConfig, np, slider_R, slider_chi, slider_psi, ureg):
         psi = np.deg2rad(slider_psi.value),
         chi = np.deg2rad(slider_chi.value),
         show_warnings=False,
-        two_beam_setup=False
+        initial_field_type='plane_wave'
     )
     return (base_config,)
 
@@ -83,11 +83,11 @@ def _(CylindricalGrid, SphericalGrid, base_config, np, pi, ureg):
     farfield_grid_multiplyer = 1
 
 
-    XOZ = SphericalGrid(base_config.wl*farfield_grid_multiplyer/2,
+    XOZ = SphericalGrid(base_config.wl*farfield_grid_multiplyer,
                          np.linspace(-np.pi/2, np.pi/2, 50)*ureg.rad,
                          0*ureg.rad)
 
-    YOZ = SphericalGrid(base_config.wl*farfield_grid_multiplyer/2,
+    YOZ = SphericalGrid(base_config.wl*farfield_grid_multiplyer,
                         np.linspace(-np.pi/2, np.pi/2, 50)*ureg.rad,
                         pi/2*ureg.rad)
 
@@ -103,8 +103,8 @@ def _(CylindricalGrid, SphericalGrid, base_config, np, pi, ureg):
 
 @app.cell
 def _(np):
-    def plot_diagram(fig, ax, Diagram_res, label):
-        ax.plot(Diagram_res.as_array()[:,0], Diagram_res.as_array()[:,1], lw=2, label=label)
+    def plot_diagram(fig, ax, angle, pattern, label):
+        ax.plot(angle, pattern, lw=2, label=label)
 
     def plot_params(fig, ax, proj, lims_x=None, lims_y=None):
         ax.legend(loc='lower left')
@@ -201,20 +201,20 @@ def _(
     fig, [ax1, ax2, ax3]= plt.subplots(1,3, dpi=150, figsize = (14,7), subplot_kw={'projection': 'polar'})
 
 
-    plot_diagram(fig, ax1, Diag_air_XOZ, '$I_{air}$')
-    plot_diagram(fig, ax1, Diag_reg_XOZ, '$I_{reg}$')
-    plot_diagram(fig, ax1, Diag_sc_XOZ, '$I_{sc}$')
-    plot_diagram(fig, ax1, Diag_spp_XOZ,'$I_{spp}$')
+    plot_diagram(fig, ax1, Diag_air_XOZ.theta, Diag_air_XOZ.D , '$I_{air}$')
+    plot_diagram(fig, ax1, Diag_reg_XOZ.theta,Diag_reg_XOZ.D, '$I_{reg}$')
+    plot_diagram(fig, ax1, Diag_sc_XOZ.theta, Diag_sc_XOZ.D,  '$I_{sc}$')
+    plot_diagram(fig, ax1, Diag_spp_XOZ.theta,Diag_spp_XOZ.D, '$I_{spp}$')
 
-    plot_diagram(fig, ax2, Diag_air_YOZ, '$I_{air}$')
-    plot_diagram(fig, ax2, Diag_reg_YOZ, '$I_{reg}$')
-    plot_diagram(fig, ax2, Diag_sc_YOZ, '$I_{sc}$')
-    plot_diagram(fig, ax2, Diag_spp_YOZ,'$I_{spp}$')
+    plot_diagram(fig, ax2, Diag_air_YOZ.theta, Diag_air_YOZ.D, '$I_{air}$')
+    plot_diagram(fig, ax2, Diag_reg_YOZ.theta, Diag_reg_YOZ.D, '$I_{reg}$')
+    plot_diagram(fig, ax2, Diag_sc_YOZ.theta,Diag_sc_YOZ.D, '$I_{sc}$')
+    plot_diagram(fig, ax2, Diag_spp_YOZ.theta,Diag_spp_YOZ.D,'$I_{spp}$')
 
-    plot_diagram(fig, ax3, Diag_air_XOY, '$I_{air}$')
-    plot_diagram(fig, ax3, Diag_reg_XOY, '$I_{reg}$')
-    plot_diagram(fig, ax3, Diag_sc_XOY, '$I_{sc}$')
-    plot_diagram(fig, ax3, Diag_spp_XOY,'$I_{spp}$')
+    plot_diagram(fig, ax3, Diag_air_XOY.phi,Diag_air_XOY.D , '$I_{air}$')
+    plot_diagram(fig, ax3, Diag_reg_XOY.phi, Diag_reg_XOY.D, '$I_{reg}$')
+    plot_diagram(fig, ax3, Diag_sc_XOY.phi,Diag_sc_XOY.D,  '$I_{sc}$')
+    plot_diagram(fig, ax3, Diag_spp_XOY.phi,Diag_spp_XOY.D,'$I_{spp}$')
 
     plot_params(fig, ax1, 'XOZ')
     plot_params(fig, ax2, 'YOZ')
