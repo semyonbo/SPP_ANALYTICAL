@@ -10,6 +10,40 @@ from scipy import integrate
 
 eps_val = np.finfo(float).eps
 
+# ============================================================================
+# ГЛОБАЛЬНЫЙ КЭШ ДЛЯ ФУНКЦИЙ ГРИНА
+# ============================================================================
+# Кэш использует числовые ключи вместо функций eps_interp
+# Это позволяет кэшу работать корректно между вызовами
+
+_green_func_cache = {}
+
+
+def _make_green_cache_key(func_name, wl, z0, eps_val, stop):
+    """Создание уникального ключа для кэша функций Грина."""
+    if isinstance(eps_val, complex):
+        eps_key = (round(eps_val.real, 10), round(eps_val.imag, 10))
+    else:
+        eps_key = round(float(eps_val), 10)
+    return (func_name, round(wl, 6), round(z0, 6), eps_key, stop)
+
+
+def get_green_func_cache():
+    """Получить текущий кэш функций Грина."""
+    return _green_func_cache
+
+
+def set_green_func_cache(cache_dict):
+    """Установить кэш функций Грина."""
+    global _green_func_cache
+    _green_func_cache = cache_dict
+
+
+def clear_green_func_cache():
+    """Очистить кэш функций Грина."""
+    global _green_func_cache
+    _green_func_cache = {}
+
 def green_ref_00_integrand(kr, wl, z0, eps_interp):
     k = 1
     kz = sqrt(1 - kr**2)

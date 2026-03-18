@@ -1,70 +1,80 @@
 from functools import lru_cache
-# import hashlib, os, pickle
 import numpy as np
 from scipy import integrate
 from scipy.special import jn, j0, j1
 from numpy import sqrt, exp, sin, cos, tan, pi
 from MieSppForce import frenel
-from filelock import FileLock
 
-# CACHE_FILE = "integrator_cache.pkl"
-# CACHE_LOCK = FileLock(CACHE_FILE + ".lock")
+_integrals_cache = {}
 
-# _mem_cache = {}
 
-# def clear_cache(): 
-#     if os.path.exists(CACHE_FILE):  
-#         os.remove(CACHE_FILE)
+def _make_cache_key(wl, h, r, forH, eps_val, field_type):
+    """Создание уникального ключа для кэша."""
+    eps_key = (round(eps_val.real, 10), round(eps_val.imag, 10)) if isinstance(eps_val, complex) else round(eps_val, 10)
+    return (round(wl, 6), round(h, 6), round(r, 6), forH, eps_key, field_type)
 
-        
-def integrator(f, key, field_type=None):
-    
-    # if key in _mem_cache:
-    #     return _mem_cache[key]
-    
-    # with CACHE_LOCK:
-    #     if os.path.exists(CACHE_FILE):
-    #         with open(CACHE_FILE, "rb") as fh:
-    #             cache = pickle.load(fh)
-    #         if key in cache:
-    #             _mem_cache[key] = cache[key]
-    #             return cache[key]
 
+def get_integrals_cache():
+    """Получить текущий кэш интегралов."""
+    return _integrals_cache
+
+
+def set_integrals_cache(cache_dict):
+    """Установить кэш интегралов (для передачи между процессами)."""
+    global _integrals_cache
+    _integrals_cache = cache_dict
+
+
+def clear_integrals_cache():
+    """Очистить кэш интегралов."""
+    global _integrals_cache
+    _integrals_cache = {}
+
+
+def integrator(f, field_type=None):
+    """Вычисление интеграла с подстановкой."""
     def f_subst_reg(t):
         kr = tan(t)
         return f(kr) * (1 / cos(t)**2)
     
     def f_subst_spp(t):
         kr = 1/t
-        return f(kr) /(t**2)
+        return f(kr) / (t**2)
 
     if field_type == 'spp':
         start, end = 0, 1
-        points=[0]
+        points = [0]
         f_subst = f_subst_spp
     elif field_type == 'reg':
-        start, end= 0, pi/4
-        points=[pi/4]
+        start, end = 0, pi/4
+        points = [pi/4]
         f_subst = f_subst_reg
+    else:
+        raise ValueError(f"Unknown field_type: {field_type}")
         
-        
-    I, err = integrate.quad(lambda t: f_subst(t), start, end, points=points, complex_func=True, limit=4000, epsrel=1e-8)
-    
-    # _mem_cache[key] = I
-    # with CACHE_LOCK:
-    #     cache = {}
-    #     if os.path.exists(CACHE_FILE):
-    #         with open(CACHE_FILE, "rb") as fh:
-    #             cache = pickle.load(fh)
-    #     cache[key] = I
-    #     with open(CACHE_FILE, "wb") as fh:
-    #         pickle.dump(cache, fh)
-
+    I, err = integrate.quad(lambda t: f_subst(t), start, end, points=points, 
+                           complex_func=True, limit=8000, epsrel=1e-6)
     return I
 
 
-@lru_cache(maxsize=None)
 def precompute_integrals(wl, h, r, forH, eps_val, field_type=None):
+    """
+    Вычисление интегралов для функций Грина с кэшированием.
+    
+    Интегралы зависят только от:
+    - wl: длина волны
+    - h: высота (z + z0)  
+    - r: радиальная координата
+    - forH: True для H-функций, False для E-функций
+    - eps_val: значение диэлектрической проницаемости (число!)
+    - field_type: 'spp' или 'reg'
+    
+    НЕ зависят от параметров поляризации (psi, chi, a_angle, phase).
+    """
+    # Проверка кэша
+    cache_key = _make_cache_key(wl, h, r, forH, eps_val, field_type)
+    if cache_key in _integrals_cache:
+        return _integrals_cache[cache_key]
     k = 2*np.pi/wl
 
     def rp(kr): return frenel.reflection_coeff(wl, lambda _: eps_val, kr)[2 if forH else 0]
@@ -90,10 +100,12 @@ def precompute_integrals(wl, h, r, forH, eps_val, field_type=None):
 
     res = []
     for idx, f in enumerate(funcs):
-        #key = hashlib.md5(f"{wl}_{eps_val}_{h}_{r}_{idx}_{forH}_{field_type}".encode()).hexdigest()
-        key = None
-        res.append(integrator(f, key, field_type)*k)
-    return tuple(res)
+        res.append(integrator(f, field_type)*k)
+    result = tuple(res)
+    
+    # Сохраняем в кэш
+    _integrals_cache[cache_key] = result
+    return result
 
 
 def build_matrices(wl, phi, integrals, polarization=None):

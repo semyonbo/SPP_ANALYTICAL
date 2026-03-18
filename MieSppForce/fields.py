@@ -1,4 +1,4 @@
-from MieSppForce import green_func, dipoles, frenel, green_func_v2
+from MieSppForce import dipoles, green_func_v2
 import numpy as np
 
 c_const = 299792458
@@ -6,7 +6,7 @@ eps0_const = 1/(4*np.pi*c_const**2)*1e7
 mu0_const = 4*np.pi * 1e-7
 
 
-def get_field(wl, eps_interp, alpha, phase, a_angle, eps_particle, R,   r, phi, z, z0, field_type = None, amplitude=1, initial_field_type=None):
+def get_field(wl, eps_interp, alpha, phase, a_angle, eps_particle, R,   r, phi, z, z0, field_type = None, amplitude=1, initial_field_type=None, effective_dipoles_in_air=False, effective_dipoles_substrate = None):
     
     assert z>= 0, "z should be >=0"
     assert z0>0, "z0 should be >0"
@@ -19,7 +19,10 @@ def get_field(wl, eps_interp, alpha, phase, a_angle, eps_particle, R,   r, phi, 
     GHres = np.zeros_like(GEres)
     rotGEres = np.zeros_like(GEres)
     
-    p,m = dipoles.calc_dipoles_v2(wl, eps_interp, [0,0,z0], R, eps_particle, alpha, amplitude, phase, a_angle, initial_field_type=initial_field_type)
+    if effective_dipoles_in_air == True:
+        p,m = dipoles.calc_dipoles_v2(wl, effective_dipoles_substrate, [0,0,z0], R, eps_particle, alpha, amplitude, phase, a_angle, initial_field_type=initial_field_type)
+    else:
+        p,m = dipoles.calc_dipoles_v2(wl, eps_interp, [0,0,z0], R, eps_particle, alpha, amplitude, phase, a_angle, initial_field_type=initial_field_type)
 
     G0, rotG0 = green_func_v2.G0(wl, z0, r, phi, z)
     GE_spp, rotGH_spp, GH_spp, rotGE_spp = green_func_v2.getG(wl, eps_interp, z+z0, r, phi, 'spp')

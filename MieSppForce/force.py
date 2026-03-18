@@ -3,16 +3,51 @@ import scipy as sc
 from MieSppForce import green_func
 from MieSppForce import frenel
 from MieSppForce import dipoles
-from functools import lru_cache
 
 
 c_const = 299792458
 eps0_const = 1/(4*np.pi*c_const**2)*1e7
 mu0_const = 4*np.pi * 1e-7
 
-# #add cache
-@lru_cache(maxsize=None)
+_force_green_cache = {}
+
+
+def _make_force_cache_key(wl, z0, eps_val, stop):
+    """Создание уникального ключа для кэша."""
+    eps_key = (round(eps_val.real, 10), round(eps_val.imag, 10)) if isinstance(eps_val, complex) else round(eps_val, 10)
+    return (round(wl, 6), round(z0, 6), eps_key, stop)
+
+
+def get_force_green_cache():
+    """Получить текущий кэш."""
+    return _force_green_cache
+
+
+def set_force_green_cache(cache_dict):
+    """Установить кэш (для передачи между процессами)."""
+    global _force_green_cache
+    _force_green_cache = cache_dict
+
+
+def clear_force_green_cache():
+    """Очистить кэш."""
+    global _force_green_cache
+    _force_green_cache = {}
+
+
 def cached_green_functions(wl, z0, eps_Au, stop):
+    """
+    Кэшированное вычисление производных функций Грина для силы.
+    
+    Зависит только от wl, z0, eps_val, stop.
+    НЕ зависит от параметров поляризации (psi, chi, angle, amplitude, phase).
+    """
+    eps_val = eps_Au(wl)
+    cache_key = _make_force_cache_key(wl, z0, eps_val, stop)
+    
+    if cache_key in _force_green_cache:
+        return _force_green_cache[cache_key]
+    
     dx_G_E, dx_G_H = green_func.dx_green_E_H(wl, z0, eps_Au, stop)
     dx_rot_G_E, dx_rot_G_H = green_func.dx_rot_green_E_H(wl, z0, eps_Au, stop)
     
@@ -21,9 +56,13 @@ def cached_green_functions(wl, z0, eps_Au, stop):
     
     dz_G_E, dz_G_H = green_func.dz_green_E_H(wl, z0, eps_Au, stop)
     dz_rot_G_E, dz_rot_G_H = green_func.dz_rot_green_E_H(wl, z0, eps_Au, stop)
-    return (dx_G_E, dx_G_H, dx_rot_G_E, dx_rot_G_H,
-            dy_G_E, dy_G_H, dy_rot_G_E, dy_rot_G_H,
-            dz_G_E, dz_G_H, dz_rot_G_E, dz_rot_G_H)
+    
+    result = (dx_G_E, dx_G_H, dx_rot_G_E, dx_rot_G_H,
+              dy_G_E, dy_G_H, dy_rot_G_E, dy_rot_G_H,
+              dz_G_E, dz_G_H, dz_rot_G_E, dz_rot_G_H)
+    
+    _force_green_cache[cache_key] = result
+    return result
     
     
 def field_dx(field, wl, alpha, amplitude, eps_Au, point, phase, a_angle, h=1):
@@ -50,14 +89,17 @@ def field_dz(field, wl, alpha, amplitude, eps_Au, point, phase, a_angle, h=1e-3)
     
 
 
-def F(wl, eps_Au, point,R, eps_si, alpha, amplitude, phase, a_angle ,stop, full_output=False, initial_field_type=None):
+def F(wl, eps_Au, point,R, eps_si, alpha, amplitude, phase, a_angle ,stop, full_output=False, initial_field_type=None, effective_dipoles_in_air=False, effective_dipoles_substrate = None):
     mu=1
     eps=1
     k = 2*np.pi/wl/1e-9
     omega = 2*np.pi*c_const/wl/1e-9
     _,_,z0=point
     
-    dip = dipoles.calc_dipoles_v2(wl,eps_Au, point,R,eps_si, alpha, amplitude, phase, a_angle, initial_field_type=initial_field_type)
+    if effective_dipoles_in_air == True:
+        dip = dipoles.calc_dipoles_v2(wl,effective_dipoles_substrate, point,R,eps_si, alpha, amplitude, phase, a_angle, initial_field_type=initial_field_type)
+    else:
+        dip = dipoles.calc_dipoles_v2(wl,eps_Au, point,R,eps_si, alpha, amplitude, phase, a_angle, initial_field_type=initial_field_type)
         
     p = dip[0][:,0]
     m = dip[1][:,0]

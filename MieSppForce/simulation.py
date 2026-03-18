@@ -17,6 +17,101 @@ Q_ = ureg.Quantity
 pint.set_application_registry(ureg)
 ureg.setup_matplotlib(True)
 
+
+class SweepResult:
+    UNITS = {
+        'R': 'nanometer', 'wl': 'nanometer', 'dist': 'nanometer',
+        'px': 'coulomb * meter', 'py': 'coulomb * meter', 'pz': 'coulomb * meter',
+        'mx': 'ampere * meter**2', 'my': 'ampere * meter**2', 'mz': 'ampere * meter**2',
+        'Fx': 'newton', 'Fy': 'newton', 'Fz': 'newton',
+        'Fxe0': 'newton', 'Fye0': 'newton', 'Fze0': 'newton',
+        'Fxe1': 'newton', 'Fye1': 'newton', 'Fze1': 'newton',
+        'Fxe2': 'newton', 'Fye2': 'newton', 'Fze2': 'newton',
+        'Fxm0': 'newton', 'Fym0': 'newton', 'Fzm0': 'newton',
+        'Fxm1': 'newton', 'Fym1': 'newton', 'Fzm1': 'newton',
+        'Fxm2': 'newton', 'Fym2': 'newton', 'Fzm2': 'newton',
+        'Fxcross': 'newton', 'Fycross': 'newton', 'Fzcross': 'newton',
+        'Fxspp': 'newton', 'Fyspp': 'newton', 'Fzspp': 'newton',
+        'Fxsppe1': 'newton', 'Fysppe1': 'newton',
+        'Fxsppe2': 'newton', 'Fysppe2': 'newton',
+        'Fxsppm1': 'newton', 'Fysppm1': 'newton',
+        'Fxsppm2': 'newton', 'Fysppm2': 'newton',
+    }
+
+    def __init__(self, df: pd.DataFrame):
+        self._data = {}
+        self._units = {}
+
+        for col in df.columns:
+            series = df[col]
+            first_val = series.iloc[0]
+
+            if hasattr(first_val, 'magnitude'):
+                magnitudes = np.array([v.magnitude for v in series])
+                unit = first_val.units
+                self._data[col] = Q_(magnitudes, unit)
+                self._units[col] = str(unit)
+            else:
+                arr = np.array(series.tolist())
+                if col in self.UNITS:
+                    self._data[col] = Q_(arr, self.UNITS[col])
+                    self._units[col] = self.UNITS[col]
+                else:
+                    self._data[col] = arr
+                    self._units[col] = None
+
+    def __getattr__(self, name):
+        if name.startswith('_'):
+            raise AttributeError(
+                f"'{type(self).__name__}' object has no attribute '{name}'")
+        if name in self._data:
+            return self._data[name]
+        raise AttributeError(
+            f"'{type(self).__name__}' object has no attribute '{name}'")
+
+    def __getitem__(self, key):
+        return self._data[key]
+
+    def __contains__(self, key):
+        return key in self._data
+
+    @property
+    def columns(self):
+        return list(self._data.keys())
+
+    def keys(self):
+        return self._data.keys()
+
+    def values(self):
+        return self._data.values()
+
+    def items(self):
+        return self._data.items()
+    
+    def to_dataframe(self) -> pd.DataFrame:
+        result = {}
+        for col, val in self._data.items():
+            if hasattr(val, 'magnitude'):
+                result[col] = [Q_(v, val.units) for v in val.magnitude]
+            else:
+                result[col] = list(val)
+        return pd.DataFrame(result)
+    
+    def __repr__(self):
+        lines = ["SweepResult:"]
+        for col in self._data:
+            val = self._data[col]
+            if hasattr(val, 'units'):
+                lines.append(f"  {col}: {len(val.magnitude)} values [{val.units:~}]")
+            else:
+                lines.append(f"  {col}: {len(val)} values [dimensionless]")
+        return "\n".join(lines)
+    
+    def __len__(self):
+        first_key = next(iter(self._data))
+        val = self._data[first_key]
+        return len(val.magnitude) if hasattr(val, 'magnitude') else len(val)
+
 @dataclass
 class Grid:
     def generate_points(self) -> np.ndarray:
@@ -38,17 +133,18 @@ class CylindricalGrid(Grid):
         points = np.stack([rr.ravel(), pp.ravel(), zz.ravel()], axis=1)
         return points
     
-@dataclass 
+    
+@dataclass
 class SphericalGrid(Grid):
     r: Q_
     theta: Q_
     phi: Q_
-    
+
     def translate_to_cylindrical(self) -> np.ndarray:
         r_vals = self.r.to('nm').magnitude
         theta_vals = self.theta.to('rad').magnitude
         phi_vals = self.phi.to('rad').magnitude
-        
+
         rr, tt, pp = np.meshgrid(r_vals, theta_vals, phi_vals, indexing='ij')
         r_cyl = rr * np.sin(tt)
         z = rr * np.cos(tt)
@@ -58,21 +154,20 @@ class SphericalGrid(Grid):
 
     def generate_points(self) -> np.ndarray:
         return self.translate_to_cylindrical()
-    
+
 
 class SimulationConfig:
-    def __init__(self, wl, R, dist, angle, 
+    def __init__(self, wl, R, dist, angle,
                  psi=None, chi=None, beta=None, delta=None,
-                 substrate='Au', particle='Si', stop=45 ,amplitude=1,show_warnings=True, initial_field_type='plane_wave'):
+                 substrate='Au', particle='Si', stop=45, amplitude=1, show_warnings=True, initial_field_type='plane_wave'):
         self.wl = wl
         self.R = R
         self.dist = dist
         self.angle = angle
-        
+
         self._psi = psi
         self._chi = chi
-        
-        # Determine beta and delta (internal storage)
+
         if psi is not None and chi is not None:
             self.polaris_param_type = 'ellipse'
             self.a_angle, self.phase = beta_delta_from_psichi(psi, chi)
@@ -81,8 +176,9 @@ class SimulationConfig:
             self.a_angle = beta
             self.phase = delta
         else:
-            raise ValueError("Polarization parameters not specified. Use (psi, chi) or (beta, delta).")
-        
+            raise ValueError(
+                "Polarization parameters not specified. Use (psi, chi) or (beta, delta).")
+
         self.substrate = substrate
         self.particle = particle
         self.amplitude = amplitude
@@ -90,14 +186,14 @@ class SimulationConfig:
         self.STOP=stop
         self.show_warnings = show_warnings 
         self.initial_field_type = initial_field_type
-        
         if not self.show_warnings:
             warnings.filterwarnings("ignore", category=IntegrationWarning)
         else:
             warnings.filterwarnings("default", category=IntegrationWarning)
-            
         if substrate == 'Air':
             self.eps_substrate = lambda wl: 1 + 0j
+        elif type(substrate) == complex or type(substrate) == np.complex128:
+            self.eps_substrate = lambda wl: substrate
         else:
             self.eps_substrate = frenel.get_interpolate(substrate)
 
@@ -110,7 +206,6 @@ class SimulationConfig:
     @property
     def psi(self):
         return self._psi
-    
     @psi.setter
     def psi(self, value):
         self._psi = value
@@ -120,7 +215,6 @@ class SimulationConfig:
     @property
     def chi(self):
         return self._chi
-    
     @chi.setter
     def chi(self, value):
         self._chi = value
@@ -195,12 +289,25 @@ class DipoleResult:
         return "\n".join([f"{k}: {v.magnitude.real:.3e} + {v.magnitude.imag:.3e}j [{v.units:~}]" for k, v in d.items()])
     
 @dataclass
+class ExtinctionResult:
+    sigma_tot: float
+    
+    def as_dict(self) -> dict:
+        return {
+            'sigma_tot': self.sigma_tot
+        }
+        
+    def __repr__(self):
+        return f"sigma_tot: {self.sigma_tot:.3e} (a.u.)"
+        
+    
+    
+@dataclass
 class DiagramResult:
     phi: np.ndarray
     theta: np.ndarray
     D: np.ndarray
-        
-    
+
     def as_dict(self) -> dict:
         if len(self.phi) != len(self.D) or len(self.theta) != len(self.D):
             raise ValueError("Длины phi, theta и D должны совпадать.")
@@ -217,11 +324,12 @@ class DiagramResult:
     def as_array(self) -> np.ndarray:
         if len(self.phi) != len(self.D) or len(self.theta) != len(self.D):
             raise ValueError("Длины phi, theta и D должны совпадать.")
-        res = np.zeros((len(self.phi),3))
-        res[:,0] = self.phi
-        res[:,1] = self.theta
-        res[:,2] = self.D
+        res = np.zeros((len(self.phi), 3))
+        res[:, 0] = self.phi
+        res[:, 1] = self.theta
+        res[:, 2] = self.D
         return res
+
 
 @dataclass
 class OpticalForceResult:
@@ -246,7 +354,7 @@ class OpticalForceResult:
             'Fxm1': Q_(self.Fx[5], N),
             'Fxm2': Q_(self.Fx[6], N),
             'Fxcross': Q_(self.Fx[7], N),
-            
+
             'Fy': Q_(self.Fy[0], N),
             'Fye0': Q_(self.Fy[1], N),
             'Fye1': Q_(self.Fy[2], N),
@@ -255,7 +363,7 @@ class OpticalForceResult:
             'Fym1': Q_(self.Fy[5], N),
             'Fym2': Q_(self.Fy[6], N),
             'Fycross': Q_(self.Fy[7], N),
-            
+
             'Fz': Q_(self.Fz[0], N),
             'Fze0': Q_(self.Fz[1], N),
             'Fze1': Q_(self.Fz[2], N),
@@ -264,28 +372,29 @@ class OpticalForceResult:
             'Fzm1': Q_(self.Fz[5], N),
             'Fzm2': Q_(self.Fz[6], N),
             'Fzcross': Q_(self.Fz[7], N),
-            
-            
+
+
             'Fxspp': Q_(self.Fxspp[0], N),
             'Fxsppe1': Q_(self.Fxspp[2], N),
             'Fxsppe2': Q_(self.Fxspp[3], N),
             'Fxsppm1': Q_(self.Fxspp[5], N),
             'Fxsppm2': Q_(self.Fxspp[6], N),
-            
+
             'Fyspp': Q_(self.Fyspp[0], N),
             'Fysppe1': Q_(self.Fyspp[2], N),
             'Fysppe2': Q_(self.Fyspp[3], N),
             'Fysppm1': Q_(self.Fyspp[5], N),
             'Fysppm2': Q_(self.Fyspp[6], N),
-            
+
             'Fzspp': Q_(self.Fzspp[0], N)
-            
+
         }
 
     def __repr__(self):
         d = self.as_dict()
         return "\n".join([f"{k}: {v.magnitude.real:.3e} + {v.magnitude.imag:.3e}j [{v.units:~}]" for k, v in d.items()])
-    
+
+
 @dataclass
 class FieldResult:
     df: pd.DataFrame
@@ -294,7 +403,8 @@ class FieldResult:
         df_serialized = self.df.copy()
         for col in df_serialized.columns:
             if isinstance(df_serialized[col].iloc[0], ureg.Quantity):
-                df_serialized[col] = df_serialized[col].apply(lambda x: f"{x.magnitude} {x.units}")
+                df_serialized[col] = df_serialized[col].apply(
+                    lambda x: f"{x.magnitude} {x.units}")
         df_serialized.to_csv(filename, index=False)
 
     @classmethod
@@ -311,8 +421,8 @@ class FieldResult:
 
     def __repr__(self):
         return f"FieldResult: {self.df.shape[0]} points\nColumns: {list(self.df.columns)}"
-    
-    
+
+
 def beta_delta_from_psichi(psi, chi, tol=1e-12):
     if not (0.0 <= psi <= np.pi):
         raise ValueError("psi вне диапазона [0, π]")
@@ -352,7 +462,23 @@ class DipoleCalculator:
         m_vec = m[:, 0]
 
         return DipoleResult(p=p_vec, m=m_vec)
+    
+class ExtinctionCalculator:
+    def __init__(self, config: SimulationConfig):
+        self.config = config
 
+    def compute(self):
+        sigma_tot  = dipoles.extinction_cross_section(wl=self.config.wl.to('nm').magnitude,
+                                                    eps_Au=self.config.eps_substrate,
+                                                    point=self.config.point0(),
+                                                    R=self.config.R.to('nm').magnitude,
+                                                    eps_Si=self.config.eps_particle,
+                                                    alpha=self.config.angle,
+                                                    amplitude=self.config.amplitude,
+                                                    phase=self.config.phase,
+                                                    a_angle=self.config.a_angle,
+                                                    initial_field_type=self.config.initial_field_type)
+        return ExtinctionResult(sigma_tot=sigma_tot)
 
 class OpticalForceCalculator:
     def __init__(self, config: SimulationConfig):
@@ -371,87 +497,36 @@ class OpticalForceCalculator:
                              stop=self.config.STOP,
                              full_output=True,
                              initial_field_type=self.config.initial_field_type)
-        
+
         fx0, fy0, fz0 = force.F(wl=self.config.wl.to('nm').magnitude,
-                             eps_Au=self.config.eps_substrate,
-                             point=self.config.point0(),
-                             R=self.config.R.to('nm').magnitude,
-                             eps_si=self.config.eps_particle,
-                             alpha=self.config.angle,
-                             amplitude=self.config.amplitude,
-                             phase=self.config.phase,
-                             a_angle=self.config.a_angle,
-                             stop=1,
-                             full_output=True,
-                             initial_field_type=self.config.initial_field_type)
-        
+                                eps_Au=self.config.eps_substrate,
+                                point=self.config.point0(),
+                                R=self.config.R.to('nm').magnitude,
+                                eps_si=self.config.eps_particle,
+                                alpha=self.config.angle,
+                                amplitude=self.config.amplitude,
+                                phase=self.config.phase,
+                                a_angle=self.config.a_angle,
+                                stop=1,
+                                full_output=True,
+                                initial_field_type=self.config.initial_field_type)
+
         fxspp, fyspp, fzspp = fx-fx0, fy-fy0, fz-fz0
 
-        return OpticalForceResult(Fx=fx, Fy=fy, Fz=fz, Fx0 = fx0, Fy0 = fy0, Fz0 = fz0, Fxspp=fxspp, Fyspp=fyspp, Fzspp = fzspp )
-    
+        return OpticalForceResult(Fx=fx, Fy=fy, Fz=fz, Fx0=fx0, Fy0=fy0, Fz0=fz0, Fxspp=fxspp, Fyspp=fyspp, Fzspp=fzspp)
+
+
 class FieldsCalculator:
     def __init__(self, config: SimulationConfig):
         self.config = config
-        
-        
-    # def _compute_point(self, r_val, phi_val, z_val, field_type):
-    #     E, H = fields.get_field(
-    #         wl=self.config.wl.to('nm').magnitude,
-    #         eps_interp=self.config.eps_substrate,
-    #         alpha=self.config.angle,
-    #         phase=self.config.phase,
-    #         a_angle=self.config.a_angle,
-    #         stop=self.config.STOP,
-    #         eps_particle=self.config.eps_particle,
-    #         R=self.config.R.to('nm').magnitude,
-    #         r=r_val,
-    #         phi=phi_val,
-    #         z=z_val,
-    #         z0=(self.config.dist + self.config.R).to('nm').magnitude,
-    #         field_type=field_type,
-    #         amplitude=self.config.amplitude
-    #     )
 
-    #     sin_phi = np.sin(phi_val)
-    #     cos_phi = np.cos(phi_val)
-
-    #     Hphi = -sin_phi * H[0] + cos_phi * H[1]
-    #     Hphi_abs2 = np.abs(Hphi)**2  # |Hphi|^2
-
-    #     return {
-    #         'r': Q_(r_val, 'nm'),
-    #         'phi': Q_(phi_val, 'rad'),
-    #         'z': Q_(z_val, 'nm'),
-    #         'Ex': Q_(E[0], 'V/m'),
-    #         'Ey': Q_(E[1], 'V/m'),
-    #         'Ez': Q_(E[2], 'V/m'),
-    #         'Hx': Q_(H[0], 'A/m'),
-    #         'Hy': Q_(H[1], 'A/m'),
-    #         'Hz': Q_(H[2], 'A/m'),
-    #         'Hphi_abs2': Q_(Hphi_abs2, 'A^2/m^2')
-    #     }
-
-
-    # def compute(self, grid: Grid, field_type=None, n_jobs=-1) -> FieldResult:
-    #     points = grid.generate_points()
-
-    #     with tqdm_joblib(tqdm(total=len(points), desc="Computing fields", unit="pt")):
-    #         results = Parallel(n_jobs=n_jobs)(
-    #             delayed(self._compute_point)(r_val, phi_val, z_val, field_type)
-    #             for r_val, phi_val, z_val in points
-    #         )
-
-    #     df = pd.DataFrame(results)
-    #     return FieldResult(df)
-    
-    
-    def compute(self, grid: Grid, field_type=None, internal_compute = False) -> FieldResult:
+    def compute(self, grid: Grid, field_type=None, internal_compute=False) -> FieldResult:
 
         points = grid.generate_points()
         results = []
-        
+
         if internal_compute:
-            smart_range = lambda x: x
+            def smart_range(x): return x
         else:
             smart_range = tqdm
 
@@ -472,8 +547,7 @@ class FieldsCalculator:
                 amplitude=self.config.amplitude,
                 initial_field_type=self.config.initial_field_type
             )
-            
-            
+
             sin_phi = np.sin(phi_val)
             cos_phi = np.cos(phi_val)
 
@@ -496,30 +570,31 @@ class FieldsCalculator:
 
         df = pd.DataFrame(results)
         return FieldResult(df)
-    
+
+
 class DiagramCalculator:
     def __init__(self, config: SimulationConfig, grid=None, normalize='directivity'):
         self.config = config
         self.normalize = normalize
         if grid == None:
-            self.grid = CylindricalGrid(self.config.wl*10, 
-                                    np.linspace(0,2*np.pi,300)*ureg.rad,
-                                    np.array([0])*ureg.nm)
+            self.grid = CylindricalGrid(self.config.wl*10,
+                                        np.linspace(0, 2*np.pi, 300)*ureg.rad,
+                                        np.array([0])*ureg.nm)
         else:
-            self.grid=grid
-            
-    def radiation_pattern(FarField : FieldResult):
+            self.grid = grid
+
+    def radiation_pattern(FarField: FieldResult):
         Ex = FarField.df['Ex'].apply(lambda x: x.magnitude).to_numpy()
         Ey = FarField.df['Ey'].apply(lambda x: x.magnitude).to_numpy()
         Ez = FarField.df['Ez'].apply(lambda x: x.magnitude).to_numpy()
         Hx = FarField.df['Hx'].apply(lambda x: x.magnitude).to_numpy()
         Hy = FarField.df['Hy'].apply(lambda x: x.magnitude).to_numpy()
         Hz = FarField.df['Hz'].apply(lambda x: x.magnitude).to_numpy()
-        
+
         Sx = 0.5*np.real(Ey*Hz.conj() - Ez*Hy.conj())
         Sy = 0.5*np.real(Ez*Hx.conj() - Ex*Hz.conj())
         Sz = 0.5*np.real(Ex*Hy.conj() - Ey*Hx.conj())
-        
+
         r = FarField.df['r'].apply(lambda x: x.magnitude).to_numpy()
         phi = FarField.df['phi'].apply(lambda x: x.magnitude).to_numpy()
         z = FarField.df['z'].apply(lambda x: x.magnitude).to_numpy()
@@ -527,17 +602,16 @@ class DiagramCalculator:
         # if type(grid) == SphericalGrid:
         #     phi = grid.phi.magnitude
         #     theta = grid.theta.magnitude
-        I  = Sx * np.sin(theta) * np.cos(phi) + Sy * np.sin(theta) * np.sin(phi) + Sz * np.cos(theta)
+        I = Sx * np.sin(theta) * np.cos(phi) + Sy * \
+            np.sin(theta) * np.sin(phi) + Sz * np.cos(theta)
         # elif type(grid) == CylindricalGrid:
         #     theta = np.pi/2
         #     phi = grid.phi.magnitude
         #     I = Sx*np.cos(phi) + Sy*np.sin(phi)
         return I, theta, phi
-        
-        
-        
-    def compute(self, field_type=None, internal_compute = False):
-    
+
+    def compute(self, field_type=None, internal_compute=False):
+
         # if (type(self.grid) == CylindricalGrid and (field_type=='spp')):
         #     FarField = FieldsCalculator(self.config).compute(self.grid, 'spp', internal_compute=internal_compute)
         #     Hphi_abs2 = FarField.df['Hphi_abs2'].apply(lambda x: x.magnitude)
@@ -553,12 +627,12 @@ class DiagramCalculator:
             FarField = FieldsCalculator(self.config).compute(self.grid, field_type=field_type, internal_compute=internal_compute)
             I, theta, phi = DiagramCalculator.radiation_pattern(FarField)
             if self.normalize == 'directivity':
-                integr = trapezoid(I , theta)
+                integr = trapezoid(I, theta)
                 pattern = 2*np.pi*I/integr
             elif self.normalize == None:
-                pattern = I          
+                pattern = I
             return DiagramResult(phi, theta, pattern)
-        
+
         elif (type(self.grid) == CylindricalGrid):
             FarField = FieldsCalculator(self.config).compute(self.grid, field_type=field_type, internal_compute=internal_compute)
             I, theta, phi = DiagramCalculator.radiation_pattern(FarField)
@@ -566,11 +640,11 @@ class DiagramCalculator:
                 integr = trapezoid(I, phi)
                 pattern = 2*np.pi*I/integr
             elif self.normalize == None:
-                pattern = I   
+                pattern = I
             return DiagramResult(phi, theta, pattern)
         else:
-            return NotImplementedError    
-        
+            return NotImplementedError
+
 
 class SweepRunner:
     def __init__(
@@ -579,60 +653,31 @@ class SweepRunner:
         sweep_param: str,
         sweep_values,
         compute_dipoles: bool = True,
+        compute_extinction: bool = True,
         compute_diagram: bool = True,
         compute_force: bool = False,
         compute_fields: bool = False,
         grid: Grid = None,
         field_type: str = None,
-        diagram_normalize: str = 'directivity'
+        diagram_normalize: str = 'directivity',
+        verbose: bool = True
     ):
         self.base_config = base_config
         self.param = sweep_param
         self.values = sweep_values
         self.compute_dipoles = compute_dipoles or compute_force
+        self.compute_extinction = compute_extinction
         self.compute_diagram = compute_diagram
         self.compute_force = compute_force
         self.compute_fields = compute_fields
         self.grid = grid
         self.field_type = field_type
         self.diagram_normalize = diagram_normalize
+        self.verbose = verbose
 
         if self.compute_fields and self.grid is None:
-            raise ValueError("Для вычисления полей необходимо передать `grid`.")
-
-    # def run(self):
-    #     summary_results = []
-    #     diagrams_records = []
-    #     fields_results = {}
-
-    #     for val in tqdm(self.values, desc=f"Sweeping '{self.param}'", unit="step"):
-    #         setattr(self.base_config, self.param, val)
-    #         row = {self.param: val}
-
-    #         if self.compute_dipoles:
-    #             dip_res = DipoleCalculator(self.base_config).compute()
-    #             row.update(dip_res.as_dict())
-                
-    #         if self.compute_diagram:
-    #             diag_res = DiagramCalculator(self.base_config).compute(field_type=self.field_type)
-    #             df_diag = diag_res.as_dict()
-    #             df_diag[self.param] = val
-    #             diagrams_records.append(df_diag)
-
-    #         if self.compute_force:
-    #             force_result = OpticalForceCalculator(self.base_config).compute()
-    #             row.update(force_result.as_dict())
-
-    #         if self.compute_fields:
-    #             field_result = FieldsCalculator(self.base_config).compute(self.grid)
-    #             fields_results[val] = field_result
-
-    #         summary_results.append(row)
-
-    #     df_summary = pd.DataFrame(summary_results)
-    #     df_diagrams = pd.concat(diagrams_records, ignore_index=True) if self.compute_diagram else None
-
-    #     return df_summary, df_diagrams, fields_results if self.compute_fields else None
+            raise ValueError(
+                "Для вычисления полей необходимо передать `grid`.")
 
 
     def _single_run(self, val):
@@ -642,8 +687,7 @@ class SweepRunner:
                 return self._do_single_run(val)
         else:
             return self._do_single_run(val)
-        
-        
+
     def _do_single_run(self, val):
         """Один шаг sweep-а"""
         setattr(self.base_config, self.param, val)
@@ -654,9 +698,14 @@ class SweepRunner:
         if self.compute_dipoles:
             dip_res = DipoleCalculator(self.base_config).compute()
             row.update(dip_res.as_dict())
+            
+        if self.compute_extinction:
+            ext_res = ExtinctionCalculator(self.base_config).compute()
+            row.update(ext_res.as_dict())
 
         if self.compute_diagram:
-            diag_res = DiagramCalculator(self.base_config, grid=self.grid, normalize=self.diagram_normalize).compute(field_type=self.field_type, internal_compute=True)
+            diag_res = DiagramCalculator(self.base_config, grid=self.grid, normalize=self.diagram_normalize).compute(
+                field_type=self.field_type, internal_compute=True)
             df_diag = diag_res.as_dict()
             df_diag[self.param] = val
             diagrams_records.append(df_diag)
@@ -666,37 +715,40 @@ class SweepRunner:
             row.update(force_result.as_dict())
 
         if self.compute_fields:
-            field_result = FieldsCalculator(self.base_config).compute(self.grid, field_type=self.field_type, internal_compute=True)
+            field_result = FieldsCalculator(self.base_config).compute(
+                self.grid, field_type=self.field_type, internal_compute=True)
             fields_results[val] = field_result
 
-        # logging.info(f"Done {self.param}={val}")
         return row, diagrams_records, fields_results
 
-
-
     def run_par(self, n_jobs=-1):
-        with tqdm_joblib(tqdm(total=len(self.values))):
+        if self.verbose:
+            with tqdm_joblib(tqdm(total=len(self.values))):
+                results = Parallel(n_jobs=n_jobs, backend="loky")(
+                    delayed(self._single_run)(val) for val in self.values
+                )
+        else:
             results = Parallel(n_jobs=n_jobs, backend="loky")(
                 delayed(self._single_run)(val) for val in self.values
             )
-
         return results
 
     def run(self, n_jobs=-1):
         summary_results, diagrams_records, fields_results = [], [], {}
         results = self.run_par(n_jobs=n_jobs)
-            
+
         for row, diag, field in results:
             summary_results.append(row)
             diagrams_records.extend(diag)
             fields_results.update(field)
 
         df_summary = pd.DataFrame(summary_results)
+        sweep_result = SweepResult(df_summary)
         df_diagrams = (
             pd.concat(diagrams_records, ignore_index=True)
             if self.compute_diagram else None
         )
-        return df_summary, df_diagrams, fields_results if self.compute_fields else None
+        return sweep_result, df_diagrams, fields_results if self.compute_fields else None
 
 
 class SweepRunner2D:
@@ -718,7 +770,8 @@ class SweepRunner2D:
         enable_parallel: bool = True,
     ):
         if primary_param == secondary_param:
-            raise ValueError("primary_param and secondary_param must be different")
+            raise ValueError(
+                "primary_param and secondary_param must be different")
 
         self.base_config = base_config
         self.primary_param = primary_param
@@ -736,10 +789,12 @@ class SweepRunner2D:
         self.enable_parallel = enable_parallel
 
         if self.compute_fields and self.grid is None:
-            raise ValueError("Для вычисления полей необходимо передать `grid`.")
+            raise ValueError(
+                "Для вычисления полей необходимо передать `grid`.")
 
         if parallel_param not in {None, 'primary', 'secondary'}:
-            raise ValueError("parallel_param must be None, 'primary', or 'secondary'")
+            raise ValueError(
+                "parallel_param must be None, 'primary', or 'secondary'")
 
     def _run_step(self, assignments, fields_key):
         effective_assignments = dict(assignments)
@@ -756,7 +811,8 @@ class SweepRunner2D:
             row.update(dip_res.as_dict())
 
         if self.compute_diagram:
-            diag_res = DiagramCalculator(self.base_config, normalize=self.diagram_normalize).compute(field_type=self.field_type, internal_compute=True)
+            diag_res = DiagramCalculator(self.base_config, normalize=self.diagram_normalize).compute(
+                field_type=self.field_type, internal_compute=True)
             df_diag = diag_res.as_dict()
             for attr, value in effective_assignments.items():
                 df_diag[attr] = value
@@ -767,7 +823,8 @@ class SweepRunner2D:
             row.update(force_result.as_dict())
 
         if self.compute_fields:
-            field_result = FieldsCalculator(self.base_config).compute(self.grid, field_type=self.field_type, internal_compute=True)
+            field_result = FieldsCalculator(self.base_config).compute(
+                self.grid, field_type=self.field_type, internal_compute=True)
             fields_results[fields_key] = field_result
 
         return row, diagrams_records, fields_results
@@ -783,7 +840,8 @@ class SweepRunner2D:
                 key = (val_primary, val_secondary)
                 if not self.base_config.show_warnings:
                     with warnings.catch_warnings():
-                        warnings.simplefilter("ignore", category=IntegrationWarning)
+                        warnings.simplefilter(
+                            "ignore", category=IntegrationWarning)
                         row, diag, field = self._run_step(assignments, key)
                 else:
                     row, diag, field = self._run_step(assignments, key)
@@ -812,7 +870,8 @@ class SweepRunner2D:
 
             if not self.base_config.show_warnings:
                 with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", category=IntegrationWarning)
+                    warnings.simplefilter(
+                        "ignore", category=IntegrationWarning)
                     row, diag, field = self._run_step(assignments, key)
             else:
                 row, diag, field = self._run_step(assignments, key)
@@ -854,9 +913,9 @@ class SweepRunner2D:
                 fields_results.update(fields)
 
         df_summary = pd.DataFrame(summary_results)
+        sweep_result = SweepResult(df_summary)
         df_diagrams = (
             pd.concat(diagrams_records, ignore_index=True)
             if self.compute_diagram else None
         )
-        return df_summary, df_diagrams, fields_results if self.compute_fields else None
-
+        return sweep_result, df_diagrams, fields_results if self.compute_fields else None
