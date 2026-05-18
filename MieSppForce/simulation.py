@@ -198,8 +198,7 @@ class SimulationConfig:
             self.eps_substrate = frenel.get_interpolate(substrate)
 
         self.c_const = 299792458 * ureg.meter / ureg.second
-        self.eps0_const = 1/(4*np.pi*self.c_const**2)*1e7 * \
-            ureg.farad / ureg.meter
+        self.eps0_const = 1/(4*np.pi*self.c_const**2)*1e7 /ureg.newton * (ureg.ampere**2)
         self.mu0_const = 4*np.pi * 1e-7 * ureg.newton / \
             (ureg.ampere**2)
 

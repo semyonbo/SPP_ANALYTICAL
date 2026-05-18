@@ -18,12 +18,6 @@ mu0_const = 4 * np.pi * 1e-7
 #     # rot_G_ref_E, rot_G_ref_H = green_func.rot_green_ref_00( wl, z0, eps_Au, stop)
 #     return (G_ref_E, G_ref_H, rot_G_ref_E, rot_G_ref_H)
 
-# @lru_cache(maxsize=None)
-# def cached_green_functions_v2(wl, z0, eps_Au, stop):
-#     G_ref_E, G_ref_H = green_func.green_ref_v2(wl, z0, eps_Au, stop)
-#     rot_G_ref_E, rot_G_ref_H = green_func.rot_green_ref_v2(wl, z0, eps_Au, stop)
-#     return (G_ref_E, G_ref_H, rot_G_ref_E, rot_G_ref_H)
-
 
 def spherical_hn(n, x, derivative=False):
     if derivative == True:
@@ -162,7 +156,6 @@ def custom_field(wl, alpha, amplitude, eps_interp, point, phase, a_angle):
         x = xnm*1e-9
         z = znm*1e-9
         k = 2*np.pi/wl/1e-9
-        omega = 2*np.pi*c_const/wl/1e-9
         
         kx = k * np.sin(alpha)
         kz = k * np.cos(alpha)
@@ -244,8 +237,6 @@ def calc_dipoles_v2(wl, eps_Au, point, R, eps_Si, alpha, amplitude, phase, a_ang
     
     
     G_ref_E, rot_G_ref_H, G_ref_H, rot_G_ref_E = green_func_v2.getG(wl, eps_Au, 2*z0, 0, 0, green_func_type)
-    # (G_ref_E, G_ref_H, rot_G_ref_E, rot_G_ref_H) = cached_green_functions(
-    #     wl, z0, eps_Au)
     if initial_field_type == 'plane_wave':
         E0, H0 = initial_field(wl, alpha, amplitude, eps_Au, point, phase, a_angle)
     elif initial_field_type == 'two_beam':
